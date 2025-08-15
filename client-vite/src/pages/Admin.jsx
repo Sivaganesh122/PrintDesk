@@ -76,7 +76,7 @@ const Admin = () => {
 
   const viewPdf = (job) => {
     if (job.file_path) {
-      const pdfUrl = `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/uploads/${job.file_path}`;
+      const pdfUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/uploads/${job.file_path}`;
       setPdfViewer({ show: true, url: pdfUrl, jobId: job.id });
     }
   };
@@ -203,7 +203,7 @@ const Admin = () => {
   };
 
   const getPdfUrl = (job) => {
-    return `${process.env.REACT_APP_API_URL || 'http://localhost:5001'}/uploads/${job.file_path}`;
+    return `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/uploads/${job.file_path}`;
   };
 
   const viewJobPdf = (job) => {

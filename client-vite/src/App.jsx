@@ -3,21 +3,21 @@ import { Routes, Route } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 
 // Import components
-import Navbar from './components/Navbar';
-import Home from './pages/Home';
-import PrintJob from './pages/PrintJob';
-import ThankYou from './pages/ThankYou';
-import Tracking from './pages/Tracking';
-import Admin from './pages/Admin';
-import AdminLogin from './pages/AdminLogin';
-import NotFound from './pages/NotFound';
-import Faculty from './pages/Facultylogin';
-import ThankYou2 from './pages/ThankYou2'
-import PrintJob2 from './pages/Printjob2';
+import Navbar from './components/Navbar.jsx';
+import Home from './pages/Home.jsx';
+import PrintJob from './pages/PrintJob.jsx';
+import ThankYou from './pages/ThankYou.jsx';
+import Tracking from './pages/Tracking.jsx';
+import Admin from './pages/Admin.jsx';
+import AdminLogin from './pages/AdminLogin.jsx';
+import NotFound from './pages/NotFound.jsx';
+import Faculty from './pages/Facultylogin.jsx';
+import ThankYou2 from './pages/ThankYou2.jsx';
+import PrintJob2 from './pages/Printjob2.jsx';
 
 // Import contexts
-import { useAuth } from './context/AuthContext';
-import { AdminAuthProvider, useAdminAuth } from './context/AdminAuthContext';
+import { useAuth } from './context/AuthContext.jsx';
+import { AdminAuthProvider, useAdminAuth } from './context/AdminAuthContext.jsx';
 
 function App() {
   const { isAuthenticated } = useAuth();
