@@ -1,4 +1,4 @@
-# MCET Print Repository
+# PrintDesk
 
 A full-stack print job management system for educational institutions. Students can upload documents, configure print jobs, make payments, and track status, while admins can manage jobs, reports, files, and order workflows.
 
@@ -31,7 +31,7 @@ A full-stack print job management system for educational institutions. Students 
 ## Project Structure
 
 ```text
-MCET-Repo/
+PrintDesk/
 ├── client-vite/             # React/Vite frontend
 │   └── src/
 │       ├── components/
