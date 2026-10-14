@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
+import niaLogo from './nialogo-removebg.png';
 import './Admin.css';
 
 const Admin = () => {
@@ -74,9 +75,19 @@ const Admin = () => {
     }
   };
 
+  const getBackendBaseUrl = () => {
+    const raw = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+    return raw.replace(/\/api\/?$/, '');
+  };
+
+  const getPdfUrl = (job) => {
+    if (!job?.file_path) return '';
+    return `${getBackendBaseUrl()}/uploads/${job.file_path}`;
+  };
+
   const viewPdf = (job) => {
     if (job.file_path) {
-      const pdfUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/uploads/${job.file_path}`;
+      const pdfUrl = getPdfUrl(job);
       setPdfViewer({ show: true, url: pdfUrl, jobId: job.id });
     }
   };
@@ -202,23 +213,10 @@ const Admin = () => {
     return `₹${parseFloat(price).toFixed(2)}`;
   };
 
-  const getPdfUrl = (job) => {
-    return `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/uploads/${job.file_path}`;
-  };
-
   const viewJobPdf = (job) => {
     if (job.file_path) {
       const pdfUrl = getPdfUrl(job);
-      fetch(pdfUrl)
-        .then(res => {
-          if (!res.ok) throw new Error('File not found');
-          return res.blob();
-        })
-        .then(blob => {
-          const url = window.URL.createObjectURL(blob);
-          window.open(url, '_blank');
-        })
-        .catch(() => alert('Unable to view PDF. File may not exist.'));
+      window.open(pdfUrl, '_blank');
     }
   };
 
@@ -276,6 +274,9 @@ const Admin = () => {
       <header className="admin-header">
         <div className="admin-header-content">
           <h1>Admin Dashboard</h1>
+          <div className="admin-logo-wrapper">
+            <img src={niaLogo} alt="NIA Logo" className="admin-logo" />
+          </div>
           <div className="admin-user-info">
             <span>Welcome, {admin.username}</span>
             <button onClick={logout} className="logout-btn">Logout</button>
@@ -284,26 +285,28 @@ const Admin = () => {
       </header>
 
       {/* Navigation */}
-      <nav className="admin-nav">
-        <button 
-          className={activeTab === 'dashboard' ? 'active' : ''} 
-          onClick={() => setActiveTab('dashboard')}
-        >
-          Dashboard
-        </button>
-        <button 
-          className={activeTab === 'print-jobs' ? 'active' : ''} 
-          onClick={() => setActiveTab('print-jobs')}
-        >
-          Print Jobs
-        </button>
-        <button 
-          className={activeTab === 'payments' ? 'active' : ''} 
-          onClick={() => setActiveTab('payments')}
-        >
-          Payments
-        </button>
-      </nav>
+      <div className="admin-nav-container">
+        <nav className="admin-nav">
+          <button 
+            className={activeTab === 'dashboard' ? 'active' : ''} 
+            onClick={() => setActiveTab('dashboard')}
+          >
+            Dashboard
+          </button>
+          <button 
+            className={activeTab === 'print-jobs' ? 'active' : ''} 
+            onClick={() => setActiveTab('print-jobs')}
+          >
+            Print Jobs
+          </button>
+          <button 
+            className={activeTab === 'payments' ? 'active' : ''} 
+            onClick={() => setActiveTab('payments')}
+          >
+            Payments
+          </button>
+        </nav>
+      </div>
 
       {/* Main Content */}
       <main className="admin-main">

@@ -221,4 +221,30 @@ router.patch('/:id/status',
   })
 );
 
+// Cancel/delete print job by tracking number or id
+router.delete('/:token', asyncHandler(async (req, res) => {
+  const { token } = req.params;
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `UPDATE print_jobs SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP 
+       WHERE tracking_number = $1 OR id::text = $1 RETURNING id, tracking_number`,
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Order not found or already cancelled' });
+    }
+
+    logger.info('Print job cancelled:', { token });
+
+    res.json({
+      success: true,
+      message: 'Order cancelled successfully'
+    });
+  } finally {
+    client.release();
+  }
+}));
+
 module.exports = router; 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { FaCheckCircle, FaDownload, FaTimes, FaClock } from 'react-icons/fa';
+import { jsPDF } from 'jspdf';
 import { apiService } from '../services/api';
 import './ThankYou.css'; // We'll create this CSS file
 
@@ -40,7 +41,8 @@ const ThankYou = () => {
       return;
     }
 
-    if (!orderData?.token) {
+    const token = orderData?.token || orderData?.trackingNumber;
+    if (!token) {
       toast.error('Order token not found');
       return;
     }
@@ -48,7 +50,7 @@ const ThankYou = () => {
     setCancelling(true);
     
     try {
-      await apiService.deleteOrder(orderData.token);
+      await apiService.deleteOrder(token);
       toast.success('Order cancelled successfully');
       navigate('/');
     } catch (error) {
@@ -60,8 +62,8 @@ const ThankYou = () => {
   };
 
   const generateBillPDF = () => {
-    const { jsPDF } = require('jspdf');
     const doc = new jsPDF();
+    const token = orderData?.token || orderData?.trackingNumber || 'N/A';
     
     // Add header
     doc.setFontSize(20);
@@ -72,8 +74,8 @@ const ThankYou = () => {
     
     // Add order details
     doc.setFontSize(10);
-    doc.text(`Order Token: ${orderData.token}`, 20, 50);
-    doc.text(`Faculty ID: ${orderData.facultyId}`, 20, 60);
+    doc.text(`Order Token: ${token}`, 20, 50);
+    doc.text(`Faculty ID: ${orderData.facultyId || orderData.rollNumber}`, 20, 60);
     doc.text(`Date: ${new Date().toLocaleDateString()}`, 20, 70);
     
     // Add document details
@@ -97,7 +99,8 @@ const ThankYou = () => {
     
     try {
       const doc = generateBillPDF();
-      const fileName = `receipt_${orderData.token}_${new Date().toISOString().split('T')[0]}.pdf`;
+      const token = orderData?.token || orderData?.trackingNumber || 'receipt';
+      const fileName = `receipt_${token}_${new Date().toISOString().split('T')[0]}.pdf`;
       
       doc.save(fileName);
       toast.success('Receipt downloaded successfully');
@@ -131,9 +134,9 @@ const ThankYou = () => {
         <div className="order-details-grid">
           <div className="order-detail-section">
             <h3>Order Details</h3>
-            <p><strong>Faculty ID:</strong> {orderData.facultyId}</p>
+            <p><strong>Faculty ID:</strong> {orderData.facultyId || orderData.rollNumber}</p>
             <p><strong>Total Pages:</strong> {orderData.totalPages}</p>
-            <p><strong>Order Token:</strong> {orderData.token}</p>
+            <p><strong>Order Token:</strong> {orderData.token || orderData.trackingNumber}</p>
           </div>
 
           <div className="order-detail-section">

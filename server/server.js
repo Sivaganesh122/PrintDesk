@@ -82,6 +82,7 @@ app.use(morgan('combined', { stream: { write: message => logger.info(message.tri
 
 // Static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/reports', express.static(path.join(__dirname, 'reports')));
 
 // File serving route for uploaded files
@@ -127,10 +128,12 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/auth', authRoutes); // Fallback for requests without /api
 app.use('/api/print-job', printJobRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/admin', adminRoutes); // Fallback for requests without /api
 app.use('/api/reports', reportRoutes);
 app.use('/api', facultyRoutes);
 

@@ -178,12 +178,6 @@ export const PrintJobProvider = ({ children }) => {
         copies: 1
       });
       
-      // Reset the file input to allow re-uploading the same file
-      const fileInput = document.querySelector('input[type="file"]');
-      if (fileInput) {
-        fileInput.value = '';
-      }
-      
       return true;
     } catch (error) {
       console.error('Upload error:', error);

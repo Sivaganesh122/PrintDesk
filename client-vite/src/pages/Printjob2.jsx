@@ -154,6 +154,19 @@ const PrintJob = () => {
 
 
   const stepRef = useRef();
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (uploadedFile && fileInputRef.current && typeof DataTransfer !== 'undefined') {
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(uploadedFile);
+        fileInputRef.current.files = dt.files;
+      } catch (err) {
+        console.error("Could not sync file input with uploadedFile:", err);
+      }
+    }
+  }, [uploadedFile, step]);
 
   useEffect(() => {
     const loadPdfJs = async () => {
@@ -370,14 +383,24 @@ const PrintJob = () => {
     return true;
   };
 
+  const handleNext = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (canNext()) {
+      setStep((prev) => Math.min(stepCount - 1, prev + 1));
+    }
+  };
+
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     
     // Only allow submission on the final step (Step 3)
-    if (step < stepCount - 1) {
-      if (canNext()) {
-        setStep((s) => Math.min(stepCount - 1, s + 1));
-      }
+    if (step !== stepCount - 1) {
       return;
     }
     
@@ -431,6 +454,7 @@ const PrintJob = () => {
         bwPages: printOptions.color ? 0 : selectedPages.length,
         price: pricing.total,
         printOptions,
+        token: result.data.trackingNumber,
         trackingNumber: result.data.trackingNumber,
         jobId: result.data.id,
       };
@@ -551,8 +575,8 @@ const PrintJob = () => {
                   </span>
                 </div>
               </div>
-              <Form onSubmit={handleSubmit} autoComplete="on">
-                <AnimatePresence exitBeforeEnter>
+              <Form onSubmit={(e) => e.preventDefault()} autoComplete="on">
+                <AnimatePresence mode="wait">
                   {step === 0 && (
                     <motion.div {...ANIMATION.section} key="step1" className="mb-4">
                       <div className="text-center mb-4">
@@ -593,6 +617,7 @@ const PrintJob = () => {
                           Select File (.pdf, .docx, .jpg, .png)
                         </Form.Label>
                         <Form.Control
+                          ref={fileInputRef}
                           type="file"
                           accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                           onChange={handleFileChange}
@@ -876,6 +901,7 @@ const PrintJob = () => {
                 {/* Wizard navigation */}
                 <div className="d-flex align-items-center mt-4 justify-content-between">
                   <Button
+                    key="btn-back"
                     type="button"
                     variant="outline-secondary"
                     size="md"
@@ -889,10 +915,11 @@ const PrintJob = () => {
                   </Button>
                   {step < stepCount - 1 ? (
                     <Button
+                      key="btn-next"
                       type="button"
                       variant="primary"
                       size="md"
-                      onClick={() => canNext() && setStep((s) => Math.min(stepCount - 1, s + 1))}
+                      onClick={handleNext}
                       className="px-4 py-2"
                       style={{ borderRadius: 13, fontWeight: 600, boxShadow: "0 7px 20px #dab66a20" }}
                       disabled={!canNext()}
@@ -902,7 +929,9 @@ const PrintJob = () => {
                     </Button>
                   ) : (
                     <Button
-                      type="submit"
+                      key="btn-submit"
+                      type="button"
+                      onClick={handleSubmit}
                       size="lg"
                       style={{
                         minWidth: 145,

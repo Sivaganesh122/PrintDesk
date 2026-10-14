@@ -4,6 +4,7 @@ import { Helmet } from 'react-helmet';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { FaCheckCircle, FaDownload, FaTimes, FaClock, FaCreditCard } from 'react-icons/fa';
+import { jsPDF } from 'jspdf';
 import { apiService } from '../services/api';
 
 const ThankYou = () => {
@@ -43,7 +44,8 @@ const ThankYou = () => {
       return;
     }
 
-    if (!orderData?.token) {
+    const token = orderData?.token || orderData?.trackingNumber;
+    if (!token) {
       toast.error('Order token not found');
       return;
     }
@@ -51,7 +53,7 @@ const ThankYou = () => {
     setCancelling(true);
     
     try {
-      await apiService.deleteOrder(orderData.token);
+      await apiService.deleteOrder(token);
       toast.success('Order cancelled successfully');
       navigate('/');
     } catch (error) {
@@ -63,8 +65,8 @@ const ThankYou = () => {
   };
 
   const generateBillPDF = () => {
-    const { jsPDF } = require('jspdf');
     const doc = new jsPDF();
+    const token = orderData?.token || orderData?.trackingNumber || 'N/A';
     
     // Add header
     doc.setFontSize(20);
@@ -75,7 +77,7 @@ const ThankYou = () => {
     
     // Add order details
     doc.setFontSize(10);
-    doc.text(`Order Token: ${orderData.token}`, 20, 50);
+    doc.text(`Order Token: ${token}`, 20, 50);
     doc.text(`Roll Number: ${orderData.rollNumber}`, 20, 60);
     doc.text(`Date: ${new Date().toLocaleDateString()}`, 20, 70);
     
@@ -114,7 +116,8 @@ const ThankYou = () => {
     
     try {
       const doc = generateBillPDF();
-      const fileName = `bill_${orderData.token}_${new Date().toISOString().split('T')[0]}.pdf`;
+      const token = orderData?.token || orderData?.trackingNumber || 'receipt';
+      const fileName = `bill_${token}_${new Date().toISOString().split('T')[0]}.pdf`;
       
       doc.save(fileName);
       toast.success('Bill downloaded successfully');
@@ -131,7 +134,8 @@ const ThankYou = () => {
   };
 
   const handlePaytmPayment = async () => {
-    if (!orderData?.token) {
+    const token = orderData?.token || orderData?.trackingNumber;
+    if (!token) {
       toast.error('Order token not found');
       return;
     }
@@ -140,7 +144,7 @@ const ThankYou = () => {
     
     try {
       const response = await apiService.processPayment({
-        orderId: orderData.token,
+        orderId: token,
         amount: orderData.price,
         rollNumber: orderData.rollNumber
       });
@@ -243,7 +247,7 @@ const ThankYou = () => {
                           <strong>Copies:</strong> {orderData.printOptions.copies}
                         </p>
                         <p className="mb-0">
-                          <strong>Order Token:</strong> {orderData.token}
+                          <strong>Order Token:</strong> {orderData.token || orderData.trackingNumber}
                         </p>
                       </Card.Body>
                     </Card>
@@ -323,7 +327,7 @@ const ThankYou = () => {
         <Modal.Body>
           <div className="text-center">
             <h5>Payment Amount: ₹{orderData.price.toFixed(2)}</h5>
-            <p className="text-muted">Order Token: {orderData.token}</p>
+            <p className="text-muted">Order Token: {orderData.token || orderData.trackingNumber}</p>
             
             <div className="mt-4">
               <Button 

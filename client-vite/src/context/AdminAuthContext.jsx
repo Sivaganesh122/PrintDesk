@@ -27,14 +27,22 @@ export const AdminAuthProvider = ({ children }) => {
   }, []);
 
   const login = async (username, password) => {
-    const res = await apiService.login({ username, password });
-    const { token, admin } = res.data.data || {};
-    if (token && admin) {
-      localStorage.setItem('adminToken', token);
-      setAdmin(admin);
-      return { success: true };
+    try {
+      const res = await apiService.login({ username, password });
+      const { token, admin } = res.data.data || {};
+      if (token && admin) {
+        localStorage.setItem('adminToken', token);
+        setAdmin(admin);
+        return { success: true };
+      }
+      return { success: false, error: 'Login failed' };
+    } catch (err) {
+      console.error('Login error:', err);
+      return { 
+        success: false, 
+        error: err.response?.data?.error || err.message || 'Login failed' 
+      };
     }
-    return { success: false, error: 'Login failed' };
   };
 
   const logout = () => {

@@ -2,13 +2,20 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FaUser,  FaSignOutAlt ,FaUserGraduate} from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
+import { useAdminAuth } from '../context/AdminAuthContext';
 import logo from './nialogo-removebg-preview.png';
 import './Navbar.css'; // Ensure you have the correct path to your CSS file
 
 const NavigationBar = () => {
   const { isAuthenticated, user, logout } = useAuth();
+  const { admin } = useAdminAuth();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Hide the public navbar on the admin dashboard when logged in
+  if (location.pathname === '/admin' && admin) {
+    return null;
+  }
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
