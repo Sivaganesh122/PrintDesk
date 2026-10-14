@@ -378,6 +378,14 @@ const PrintJob = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Only allow submission on the final step (Step 3)
+    if (step < stepCount - 1) {
+      if (canNext()) {
+        setStep((s) => Math.min(stepCount - 1, s + 1));
+      }
+      return;
+    }
+    
     if (
       !uploadedFile ||
       !rollNumber.trim() ||
@@ -621,6 +629,7 @@ const PrintJob = () => {
                         <div style={{ minHeight: 140 }}>
                           <div className="d-flex mb-1 align-items-center">
                             <Button
+                              type="button"
                               size="sm"
                               variant="outline-primary"
                               className="me-2"
@@ -630,6 +639,7 @@ const PrintJob = () => {
                               Select All
                             </Button>
                             <Button
+                              type="button"
                               size="sm"
                               variant="outline-secondary"
                               onClick={clearAllSelections}
@@ -706,6 +716,7 @@ const PrintJob = () => {
                                   />
                                   <div className="text-center small mt-1 mb-2" style={{ fontWeight: 500 }}>Page {page.pageNumber}</div>
                                   <Button
+                                    type="button"
                                     variant={
                                       selectedPages.includes(page.id)
                                         ? "primary"
