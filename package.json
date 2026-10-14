@@ -4,13 +4,13 @@
   "description": "Full-stack Print Repository System for educational institutions",
   "private": true,
   "scripts": {
-    "install-all": "npm install && cd server && npm install && cd ../client && npm install",
+    "install-all": "cd server && npm install && cd ../client-vite && npm install --legacy-peer-deps",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "cd server && npm run dev",
-    "client": "cd client && npm start",
-    "build": "cd client && npm run build",
+    "client": "cd client-vite && npm run dev",
+    "build": "cd client-vite && npm run build",
     "test": "cd server && npm test",
-    "lint": "cd server && npm run lint && cd ../client && npm run lint",
+    "lint": "cd server && npm run lint && cd ../client-vite && npm run lint",
     "setup": "./start.sh"
   },
   "devDependencies": {
