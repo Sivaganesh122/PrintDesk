@@ -158,6 +158,13 @@ const initializeDatabase = async () => {
       ON CONFLICT (setting_key) DO NOTHING
     `);
 
+    // Insert default admin user if not exists
+    await client.query(`
+      INSERT INTO admin_users (username, password_hash, email, role, is_active)
+      VALUES ('admin', 'admin123', 'admin@printdesk.edu', 'admin', true)
+      ON CONFLICT (username) DO NOTHING
+    `);
+
     // Create indexes for better performance
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_print_jobs_tracking_number ON print_jobs(tracking_number);
