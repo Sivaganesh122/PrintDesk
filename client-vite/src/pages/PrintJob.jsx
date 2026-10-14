@@ -148,8 +148,8 @@ const PrintJob = () => {
   const [loading, setLoading] = useState(false);
   const [previewPages, setPreviewPages] = useState([]);
   const [showPreview, setShowPreview] = useState(false);
-  const [paperSize, setPaperSize] = useState("");
-  const [bindingType, setBindingType] = useState("");
+  const [paperSize, setPaperSize] = useState("A4");
+  const [bindingType, setBindingType] = useState("None");
 
 
 
@@ -226,6 +226,7 @@ const PrintJob = () => {
       if (pages.length > 0) {
         setPreviewPages(pages);
         setShowPreview(true);
+        selectAllPages(pages.length);
         return true;
       } else {
         throw new Error('No pages could be rendered');
@@ -243,6 +244,7 @@ const PrintJob = () => {
         type: "pdf",
       }]);
       setShowPreview(true);
+      selectAllPages(1);
       return true;
     }
   };
@@ -259,6 +261,7 @@ const PrintJob = () => {
       },
     ]);
     setShowPreview(true);
+    selectAllPages(1);
   };
 
   const generateDocumentPreview = async (file) => {
@@ -268,12 +271,14 @@ const PrintJob = () => {
       if (result.success) {
         setPreviewPages(result.pages);
         setShowPreview(true);
+        selectAllPages(result.pages.length);
       } else toast.error(result.error);
     } else if (ext === "doc") {
       const result = await convertDocToPreview(file);
       if (result.success) {
         setPreviewPages(result.pages);
         setShowPreview(true);
+        selectAllPages(result.pages.length);
       } else toast.error(result.error);
     } else {
       setPreviewPages([
@@ -365,8 +370,8 @@ const PrintJob = () => {
   // ---- VALIDATION LOGIC for step navigation & submission ----
   const canNext = () => {
     if (step === 0) return !!uploadedFile && !!rollNumber.trim();
-    if (step === 1) return !!printOptions.copies && printOptions.copies > 0; 
-    if (step === 2) return selectedPages.length > 0;
+    if (step === 1) return selectedPages.length > 0;
+    if (step === 2) return !!printOptions.copies && printOptions.copies > 0; 
     return true;
   };
 
@@ -605,129 +610,7 @@ const PrintJob = () => {
                     </motion.div>
                   )}
                   {step === 1 && (
-                    <motion.div {...ANIMATION.section} key="step2" className="mb-4">
-                      <Form.Group className="mb-3">
-                        <Form.Check
-                          type="switch"
-                          id="colorSwitch"
-                          label="Color Print"
-                          checked={printOptions.color}
-                          onChange={(e) =>
-                            updatePrintOptions({ color: e.target.checked })
-                          }
-                          className="mb-2"
-                        />
-                        <Form.Check
-                          type="switch"
-                          id="doubleSwitch"
-                          label="Double-sided"
-                          checked={printOptions.doubleSided}
-                          onChange={(e) =>
-                            updatePrintOptions({ doubleSided: e.target.checked })
-                          }
-                          className="mb-2"
-                        />
-                      </Form.Group>
-
-                          <Form.Group className="mb-4">
-                        <Form.Label className="fw-semibold">Paper Size</Form.Label>
-                        <Form.Select
-                          value={paperSize}
-                          onChange={(e) => setPaperSize(e.target.value)}
-                          required
-                          style={{
-                            borderRadius: 14,
-                            border: "1.5px solid #d2ba88bb",
-                            fontSize: "1.16rem",
-                            background: "#fffbe9",
-                            fontWeight: 500,
-                          }}
-                        >
-                          
-                          <option value="A4">A4</option>
-                          <option value="A3">A3</option>
-                          
-                        </Form.Select>
-                      </Form.Group>
-
-                      <Form.Group className="mb-4">
-                        <Form.Label className="fw-semibold">Binding Type</Form.Label>
-                        <Form.Select
-                          value={bindingType}
-                          onChange={(e) => setBindingType(e.target.value)}
-                          required
-                          style={{
-                            borderRadius: 14,
-                            border: "1.5px solid #d2ba88bb",
-                            fontSize: "1.16rem",
-                            background: "#fffbe9",
-                            fontWeight: 500,
-                          }}
-                        >
-                          
-                          <option value="None">None</option>
-                          <option value="Spiral">Spiral Binding</option>
-                          <option value="Paper">Paper Binding</option>
-                        </Form.Select>
-                      </Form.Group>
-
-                      <Form.Group>
-                        <Form.Label>Copies</Form.Label>
-                        <Form.Control
-                          type="number"
-                          min="1"
-                          max="10"
-                          value={printOptions.copies}
-                          onChange={(e) =>
-                            updatePrintOptions({ copies: +e.target.value })
-                          }
-                          style={{
-                            width: 90,
-                            borderRadius: 13,
-                            border: "1.5px solid #e6d3a9c4",
-                            background: "#fff7e0",
-                            fontWeight: 500,
-                          }}
-                        />
-                      </Form.Group>
-                      <AnimatePresence>
-                        {(pricing.total > 0 || uploadedFile) && (
-                          <motion.div {...ANIMATION.section} className="mt-4" key="pricing">
-                            <Alert
-                              variant="info"
-                              className="py-2 px-2 shadow-none"
-                              style={{
-                                background: "#fff4dcc0",
-                                color: "#9a865d",
-                                border: "none",
-                                textAlign: "center",
-                              }}
-                            >
-                              <span
-                                style={{
-                                  fontWeight: "bold",
-                                  fontSize: "1.22rem",
-                                  color: "#ceae69",
-                                }}
-                              >
-                                ₹{pricing.total.toFixed(2)}
-                              </span>
-                              <br />
-                              <span style={{ fontSize: "0.99em" }}>
-                                B&W: {pricing.bwPages}, Color: {pricing.colorPages}
-                              </span>
-                              <br />
-                              <span style={{ fontSize: "0.94em", color: "#ab832f" }}>
-                                
-                              </span>
-                            </Alert>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  )}
-                  {step === 2 && (
-                    <motion.div {...ANIMATION.section} key="step3" className="mb-2">
+                    <motion.div {...ANIMATION.section} key="step2-pages" className="mb-2">
                       <div
                         className="mb-2 fw-semibold"
                         style={{ color: "#bfa353", letterSpacing: "0.1em", fontSize: "1.18em" }}
@@ -762,7 +645,7 @@ const PrintJob = () => {
                                 fontWeight: 600,
                               }}
                             >
-                              {selectedPages.length} page(s)
+                              {selectedPages.length} page(s) selected
                             </span>
                           </div>
                           <div
@@ -855,6 +738,131 @@ const PrintJob = () => {
                           </div>
                         </div>
                       )}
+                    </motion.div>
+                  )}
+                  {step === 2 && (
+                    <motion.div {...ANIMATION.section} key="step3-options" className="mb-4">
+                      <div
+                        className="mb-3 fw-semibold"
+                        style={{ color: "#bfa353", letterSpacing: "0.05em", fontSize: "1.15em" }}
+                      >
+                        <FaPrint className="me-2" /> Printing Specifications
+                      </div>
+                      <Form.Group className="mb-3">
+                        <Form.Check
+                          type="switch"
+                          id="colorSwitch"
+                          label="Color Print (₹2/page vs ₹1/page B&W)"
+                          checked={printOptions.color}
+                          onChange={(e) =>
+                            updatePrintOptions({ color: e.target.checked })
+                          }
+                          className="mb-2"
+                        />
+                        <Form.Check
+                          type="switch"
+                          id="doubleSwitch"
+                          label="Double-sided"
+                          checked={printOptions.doubleSided}
+                          onChange={(e) =>
+                            updatePrintOptions({ doubleSided: e.target.checked })
+                          }
+                          className="mb-2"
+                        />
+                      </Form.Group>
+
+                      <Form.Group className="mb-4">
+                        <Form.Label className="fw-semibold">Paper Size</Form.Label>
+                        <Form.Select
+                          value={paperSize}
+                          onChange={(e) => setPaperSize(e.target.value)}
+                          required
+                          style={{
+                            borderRadius: 14,
+                            border: "1.5px solid #d2ba88bb",
+                            fontSize: "1.16rem",
+                            background: "#fffbe9",
+                            fontWeight: 500,
+                          }}
+                        >
+                          <option value="A4">A4</option>
+                          <option value="A3">A3</option>
+                        </Form.Select>
+                      </Form.Group>
+
+                      <Form.Group className="mb-4">
+                        <Form.Label className="fw-semibold">Binding Type</Form.Label>
+                        <Form.Select
+                          value={bindingType}
+                          onChange={(e) => setBindingType(e.target.value)}
+                          required
+                          style={{
+                            borderRadius: 14,
+                            border: "1.5px solid #d2ba88bb",
+                            fontSize: "1.16rem",
+                            background: "#fffbe9",
+                            fontWeight: 500,
+                          }}
+                        >
+                          <option value="None">None</option>
+                          <option value="Spiral">Spiral Binding</option>
+                          <option value="Paper">Paper Binding</option>
+                        </Form.Select>
+                      </Form.Group>
+
+                      <Form.Group>
+                        <Form.Label className="fw-semibold">Number of Copies</Form.Label>
+                        <Form.Control
+                          type="number"
+                          min="1"
+                          max="10"
+                          value={printOptions.copies}
+                          onChange={(e) =>
+                            updatePrintOptions({ copies: Math.max(1, +e.target.value || 1) })
+                          }
+                          style={{
+                            width: 110,
+                            borderRadius: 13,
+                            border: "1.5px solid #e6d3a9c4",
+                            background: "#fff7e0",
+                            fontWeight: 500,
+                          }}
+                        />
+                      </Form.Group>
+                      <AnimatePresence>
+                        {(pricing.total > 0 || selectedPages.length > 0) && (
+                          <motion.div {...ANIMATION.section} className="mt-4" key="pricing">
+                            <Alert
+                              variant="info"
+                              className="py-3 px-3 shadow-none"
+                              style={{
+                                background: "#fff4dcc0",
+                                color: "#9a865d",
+                                border: "1.5px solid #ecd5a3",
+                                borderRadius: "14px",
+                                textAlign: "center",
+                              }}
+                            >
+                              <div style={{ fontSize: "0.95rem", color: "#8a754b", marginBottom: "4px" }}>
+                                Estimated Total Cost ({selectedPages.length} pages × {printOptions.copies} {printOptions.copies > 1 ? 'copies' : 'copy'})
+                              </div>
+                              <span
+                                style={{
+                                  fontWeight: "bold",
+                                  fontSize: "1.65rem",
+                                  color: "#b88a3b",
+                                }}
+                              >
+                                ₹{pricing.total.toFixed(2)}
+                              </span>
+                              <br />
+                              <span style={{ fontSize: "0.95em", fontWeight: 500 }}>
+                                {printOptions.color ? `Color: ${pricing.colorPages} pages` : `B&W: ${pricing.bwPages} pages`} | {paperSize || 'A4'} | {bindingType || 'None'} Binding
+                              </span>
+                            </Alert>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </motion.div>
                   )}
                 </AnimatePresence>
