@@ -49,21 +49,22 @@ router.get('/:trackingNumber', asyncHandler(async (req, res) => {
   }
 }));
 
-// Track by roll number
+// Track by roll number or tracking number
 router.get('/roll/:rollNumber', async (req, res, next) => {
   let client;
   try {
     const { rollNumber } = req.params;
     client = await pool.connect();
     const result = await client.query(
-      'SELECT * FROM print_jobs WHERE customer_name = $1 ORDER BY created_at DESC LIMIT 1',
+      `SELECT * FROM print_jobs 
+       WHERE customer_name = $1 OR tracking_number = $1 
+       ORDER BY created_at DESC`,
       [rollNumber]
     );
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Print job not found' });
+      return res.status(404).json({ error: 'No print jobs found for this roll number or tracking number' });
     }
-    const row = result.rows[0];
-    const mappedOrder = {
+    const mappedOrders = result.rows.map(row => ({
       token: row.tracking_number,
       rollNumber: row.customer_name,
       status: row.status,
@@ -72,11 +73,18 @@ router.get('/roll/:rollNumber', async (req, res, next) => {
       colorPages: row.color_pages || null,
       bwPages: row.bw_pages || null,
       price: row.total_price || null,
+      paperSize: row.paper_size || null,
+      binding: row.binding || null,
+      urgency: row.urgency || null,
       downloadUrl: `/api/print-job/download/${row.tracking_number}`,
       printReceiptUrl: `/api/print-job/receipt/${row.tracking_number}`,
-      // add more fields as needed
-    };
-    res.json({ success: true, order: mappedOrder });
+    }));
+
+    res.json({ 
+      success: true, 
+      orders: mappedOrders,
+      order: mappedOrders[0] 
+    });
   } catch (err) {
     next(err);
   } finally {
