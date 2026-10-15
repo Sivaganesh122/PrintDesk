@@ -265,7 +265,23 @@ const Admin = () => {
     }
   };
 
-  if (loading) return <div className="admin-loading">Loading...</div>;
+  if (loading) {
+    return (
+      <div className="admin-loading" style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: '#f8fafc',
+        color: '#334155',
+        fontSize: '1.2rem',
+        fontWeight: 600
+      }}>
+        Loading Admin Dashboard...
+      </div>
+    );
+  }
   if (!admin) return null;
 
   return (
@@ -312,7 +328,7 @@ const Admin = () => {
       <main className="admin-main">
         {activeTab === 'dashboard' && (
           <div className="dashboard">
-            {dashboardData && (
+            {dashboardData ? (
               <>
                 <div className="stats-grid">
                   <div className="stat-card">
@@ -367,6 +383,10 @@ const Admin = () => {
                   </div>
                 </div>
               </>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '4rem 1rem', color: '#fff', fontSize: '1.1rem' }}>
+                Loading dashboard data...
+              </div>
             )}
           </div>
         )}
@@ -509,9 +529,6 @@ const Admin = () => {
           </div>
         </div>
       )}
-      <footer style={{ textAlign: 'center', margin: '2rem 0' }}>
-        <button onClick={logout} className="logout-btn">Logout</button>
-      </footer>
     </div>
   );
 };

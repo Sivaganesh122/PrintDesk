@@ -285,7 +285,8 @@
 .job-header h3 {
   margin: 0;
   font-size: 1.2rem;
-  color: #3498db;
+  color: #ffffff;
+  font-weight: 600;
 }
 
 .job-details {

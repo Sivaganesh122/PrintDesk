@@ -33,9 +33,13 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
-      // Unauthorized - clear token and redirect to login
+      // Unauthorized - clear token
       localStorage.removeItem('adminToken');
-      window.location.href = '/admin';
+      // Avoid reload loops if already on admin pages
+      const path = window.location.pathname;
+      if (!path.startsWith('/admin') && path !== '/admin-login') {
+        window.location.href = '/admin';
+      }
     }
     return Promise.reject(error);
   }

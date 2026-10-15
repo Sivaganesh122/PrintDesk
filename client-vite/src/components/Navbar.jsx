@@ -12,11 +12,6 @@ const NavigationBar = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Hide the public navbar on the admin dashboard when logged in
-  if (location.pathname === '/admin' && admin) {
-    return null;
-  }
-
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [lastScrollY, setLastScrollY] = useState(0);
@@ -47,6 +42,11 @@ const NavigationBar = () => {
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, [lastScrollY]);
+
+  // Hide the public navbar on the admin dashboard when logged in (called AFTER all hooks)
+  if (location.pathname === '/admin' && admin) {
+    return null;
+  }
 
   return (
     <>

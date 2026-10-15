@@ -30,7 +30,7 @@ function App() {
 }
 
 function AppContent() {
-  const { admin } = useAdminAuth();
+  const { admin, loading } = useAdminAuth();
 
   return (
     <div className="App">
@@ -49,12 +49,39 @@ function AppContent() {
           <Route path="/tracking" element={<Tracking />} />
           <Route 
             path="/admin-login" 
-            element={<AdminLogin />}
+            element={admin ? <Admin /> : <AdminLogin />}
           />
           <Route 
             path="/admin" 
             element={
-              admin ? <Admin /> : <AdminLogin />
+              loading ? (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  minHeight: '80vh',
+                  color: '#4a5568',
+                  fontSize: '1.1rem',
+                  fontWeight: 500
+                }}>
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
+                    border: '4px solid #e2e8f0',
+                    borderTop: '4px solid #3b82f6',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                    marginBottom: '1rem'
+                  }} />
+                  <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+                  Loading Admin Portal...
+                </div>
+              ) : admin ? (
+                <Admin />
+              ) : (
+                <AdminLogin />
+              )
             } 
           />
           <Route path="/faculty-login" element={<Faculty />} />
