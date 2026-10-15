@@ -157,7 +157,7 @@ const Home = () => {
               The <span>Academic Printing</span>
             </motion.h1>
             <motion.p className="hero-subtitle" variants={fadeItem}>
-              A modern solution for students and faculty to print documents securely and efficiently on campus.
+              A modern solution for students and departments to print documents securely and efficiently on campus.
             </motion.p>
             <motion.div className="hero-actions" variants={fadeItem}>
               <button onClick={handleStartPrintJob} className="primary-btn">

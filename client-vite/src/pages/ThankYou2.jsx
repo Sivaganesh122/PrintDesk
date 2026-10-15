@@ -67,7 +67,7 @@ const ThankYou = () => {
     
     // Add header
     doc.setFontSize(20);
-    doc.text('Faculty Portal System', 105, 20, { align: 'center' });
+    doc.text('Departments Portal System', 105, 20, { align: 'center' });
     
     doc.setFontSize(12);
     doc.text('Order Receipt', 105, 35, { align: 'center' });
@@ -75,7 +75,7 @@ const ThankYou = () => {
     // Add order details
     doc.setFontSize(10);
     doc.text(`Order Token: ${token}`, 20, 50);
-    doc.text(`Faculty ID: ${orderData.facultyId || orderData.rollNumber}`, 20, 60);
+    doc.text(`Department ID: ${orderData.facultyId || orderData.rollNumber || orderData.departmentName}`, 20, 60);
     doc.text(`Date: ${new Date().toLocaleDateString()}`, 20, 70);
     
     // Add document details
@@ -89,7 +89,7 @@ const ThankYou = () => {
     
     // Add footer
     doc.setFontSize(8);
-    doc.text('Thank you for using Faculty Portal System', 105, 280, { align: 'center' });
+    doc.text('Thank you for using Departments Portal System', 105, 280, { align: 'center' });
     
     return doc;
   };
@@ -134,7 +134,7 @@ const ThankYou = () => {
         <div className="order-details-grid">
           <div className="order-detail-section">
             <h3>Order Details</h3>
-            <p><strong>Faculty ID:</strong> {orderData.facultyId || orderData.rollNumber}</p>
+            <p><strong>Department ID:</strong> {orderData.facultyId || orderData.rollNumber || orderData.departmentName}</p>
             <p><strong>Total Pages:</strong> {orderData.totalPages}</p>
             <p><strong>Order Token:</strong> {orderData.token || orderData.trackingNumber}</p>
           </div>

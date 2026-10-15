@@ -34,7 +34,7 @@ const FacultyLogin = () => {
       <div className="navbar-space"></div>
 
       <div className="login-card">
-        <h1 className="login-title">Faculty Portal</h1>
+        <h1 className="login-title">Departments Portal</h1>
 
         <form className="login-form" onSubmit={handleSubmit}>
           <div className="input-group">

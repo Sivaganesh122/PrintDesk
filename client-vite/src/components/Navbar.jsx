@@ -98,7 +98,7 @@ const NavigationBar = () => {
                 </div>
                 <Link to="/faculty-login"  className="nav-link" onClick={handleNavClick}>
                     < FaUserGraduate className="user-icon" />
-                    <span>Faculty</span>
+                    <span>Departments</span>
                     <span className="link-underline"></span>
                   </Link>
               </div>
@@ -140,7 +140,7 @@ const NavigationBar = () => {
               )}
             </div>
             <Link to="/faculty-login" className="mobile-nav-button" onClick={handleNavClick}>
-                  <FaUserGraduate className="user-icon" /> Faculty Login
+                  <FaUserGraduate className="user-icon" /> Departments Login
              </Link>
           </div>
         </div>

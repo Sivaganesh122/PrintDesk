@@ -85,6 +85,7 @@ function AppContent() {
             } 
           />
           <Route path="/faculty-login" element={<Faculty />} />
+          <Route path="/departments-login" element={<Faculty />} />
           <Route path="*" element={<NotFound />} />
           <Route path="/thank-you2" element={<ThankYou2 />} />
           
