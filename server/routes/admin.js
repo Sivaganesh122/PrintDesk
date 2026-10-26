@@ -26,6 +26,14 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
     const completedJobsResult = await client.query("SELECT COUNT(*) FROM print_jobs WHERE status = 'completed'");
     const completedJobs = parseInt(completedJobsResult.rows[0].count);
 
+    // Get delivered jobs
+    const deliveredJobsResult = await client.query("SELECT COUNT(*) FROM print_jobs WHERE status = 'delivered'");
+    const deliveredJobs = parseInt(deliveredJobsResult.rows[0].count);
+
+    // Get cancelled jobs
+    const cancelledJobsResult = await client.query("SELECT COUNT(*) FROM print_jobs WHERE status = 'cancelled'");
+    const cancelledJobs = parseInt(cancelledJobsResult.rows[0].count);
+
     // Get total revenue
     const revenueResult = await client.query('SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = $1', ['completed']);
     const totalRevenue = parseFloat(revenueResult.rows[0].coalesce);
@@ -43,6 +51,8 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
           totalJobs,
           pendingJobs,
           completedJobs,
+          deliveredJobs,
+          cancelledJobs,
           totalRevenue
         },
         recentJobs: recentJobsResult.rows
@@ -139,7 +149,7 @@ router.patch('/print-jobs/:id/status', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
-  if (!['pending', 'processing', 'completed', 'cancelled'].includes(status)) {
+  if (!['pending', 'processing', 'completed', 'delivered', 'cancelled'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
 
@@ -171,11 +181,17 @@ router.get('/print-jobs/:id/file', authenticateAdmin, asyncHandler(async (req, r
   const { id } = req.params;
   const client = await pool.connect();
   try {
-    const result = await client.query('SELECT file_path FROM print_jobs WHERE id = $1', [id]);
+    const result = await client.query('SELECT file_path, status FROM print_jobs WHERE id = $1', [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Print job not found' });
     }
-    const filePath = result.rows[0].file_path;
+    const { file_path: filePath, status } = result.rows[0];
+
+    // For cancelled tasks, admin can only view metadata and cannot access files
+    if (status === 'cancelled') {
+      return res.status(403).json({ error: 'File access is restricted for cancelled tasks. Only metadata can be viewed.' });
+    }
+
     if (!filePath) {
       return res.status(404).json({ error: 'No file associated with this print job' });
     }

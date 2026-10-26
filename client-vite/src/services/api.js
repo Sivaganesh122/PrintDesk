@@ -15,9 +15,18 @@ const api = axios.create({
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('adminToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    if (config.headers?.Authorization) {
+      return config;
+    }
+    const adminToken = localStorage.getItem('adminToken');
+    const studentToken = localStorage.getItem('studentToken');
+
+    if (config.url?.includes('student-')) {
+      if (studentToken) config.headers.Authorization = `Bearer ${studentToken}`;
+    } else if (adminToken) {
+      config.headers.Authorization = `Bearer ${adminToken}`;
+    } else if (studentToken) {
+      config.headers.Authorization = `Bearer ${studentToken}`;
     }
     return config;
   },
@@ -50,6 +59,9 @@ export const endpoints = {
   // Auth
   login: '/auth/login',
   validateToken: '/auth/validate',
+  studentRegister: '/auth/student-register',
+  studentLogin: '/auth/student-login',
+  studentMe: '/auth/student-me',
   
   // Print Job
   createPrintJob: '/print-job',
@@ -80,6 +92,9 @@ export const apiService = {
   // Auth
   login: (credentials) => api.post(endpoints.login, credentials),
   validateToken: () => api.get(endpoints.validateToken),
+  studentRegister: (data) => api.post(endpoints.studentRegister, data),
+  studentLogin: (credentials) => api.post(endpoints.studentLogin, credentials),
+  getStudentProfile: () => api.get(endpoints.studentMe),
   
   // Print Job
   createPrintJob: (jobData) => api.post(endpoints.createPrintJob, jobData),

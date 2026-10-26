@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 
 // Import components
@@ -14,6 +14,7 @@ import NotFound from './pages/NotFound.jsx';
 import Faculty from './pages/Facultylogin.jsx';
 import ThankYou2 from './pages/ThankYou2.jsx';
 import PrintJob2 from './pages/Printjob2.jsx';
+import AuthPage from './pages/AuthPage.jsx';
 
 // Import contexts
 import { useAuth } from './context/AuthContext.jsx';
@@ -31,6 +32,7 @@ function App() {
 
 function AppContent() {
   const { admin, loading } = useAdminAuth();
+  const { user, loading: userLoading } = useAuth();
 
   return (
     <div className="App">
@@ -44,9 +46,17 @@ function AppContent() {
       <main className="container-fluid p-0">
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/print-job" element={<PrintJob />} />
+          <Route path="/login" element={<AuthPage />} />
+          <Route path="/register" element={<AuthPage />} />
+          <Route 
+            path="/print-job" 
+            element={user ? <PrintJob /> : (userLoading ? null : <Navigate to="/" replace />)} 
+          />
           <Route path="/thank-you" element={<ThankYou />} />
-          <Route path="/tracking" element={<Tracking />} />
+          <Route 
+            path="/tracking" 
+            element={user ? <Tracking /> : (userLoading ? null : <Navigate to="/" replace />)} 
+          />
           <Route 
             path="/admin-login" 
             element={admin ? <Admin /> : <AdminLogin />}

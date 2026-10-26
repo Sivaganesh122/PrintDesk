@@ -70,14 +70,19 @@ const NavigationBar = () => {
                   <span className="link-text">Home</span>
                   <span className="link-underline"></span>
                 </Link>
-                <Link to="/print-job" className="nav-link" onClick={handleNavClick}>
-                  <span className="link-text">Print Job</span>
-                  <span className="link-underline"></span>
-                </Link>
-                <Link to="/tracking" className="nav-link" onClick={handleNavClick}>
-                  <span className="link-text">Track Order</span>
-                  <span className="link-underline"></span>
-                </Link>
+
+                {isAuthenticated && user && (
+                  <>
+                    <Link to="/print-job" className="nav-link" onClick={handleNavClick}>
+                      <span className="link-text">Print Job</span>
+                      <span className="link-underline"></span>
+                    </Link>
+                    <Link to="/tracking" className="nav-link" onClick={handleNavClick}>
+                      <span className="link-text">Track Order</span>
+                      <span className="link-underline"></span>
+                    </Link>
+                  </>
+                )}
 
                 <div
                   className="nav-dropdown"
@@ -100,7 +105,31 @@ const NavigationBar = () => {
                     < FaUserGraduate className="user-icon" />
                     <span>Departments</span>
                     <span className="link-underline"></span>
-                  </Link>
+                </Link>
+
+                {isAuthenticated && user && (
+                  <div className="nav-user-badge" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-dark)' }}>
+                      Hi, {user.name?.split(' ')[0]}
+                    </span>
+                    <button
+                      onClick={handleLogout}
+                      title="Logout"
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid rgba(218, 182, 106, 0.45)',
+                        borderRadius: '6px',
+                        padding: '3px 8px',
+                        color: 'var(--secondary-color)',
+                        cursor: 'pointer',
+                        fontSize: '0.82rem',
+                        fontWeight: 600
+                      }}
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -122,12 +151,16 @@ const NavigationBar = () => {
             <Link to="/" className="mobile-nav-link" onClick={handleNavClick}>
               Home
             </Link>
-            <Link to="/print-job" className="mobile-nav-link" onClick={handleNavClick}>
-              Print Job
-            </Link>
-            <Link to="/tracking" className="mobile-nav-link" onClick={handleNavClick}>
-              Track Order
-            </Link>
+            {isAuthenticated && user && (
+              <>
+                <Link to="/print-job" className="mobile-nav-link" onClick={handleNavClick}>
+                  Print Job
+                </Link>
+                <Link to="/tracking" className="mobile-nav-link" onClick={handleNavClick}>
+                  Track Order
+                </Link>
+              </>
+            )}
             <div className="mobile-auth-section">
               {isAuthenticated ? (
                 <button className="mobile-nav-button" onClick={handleLogout}>

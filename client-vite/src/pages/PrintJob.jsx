@@ -11,6 +11,7 @@ import {
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
 import { usePrintJob } from "../context/PrintJobContext";
+import { useAuth } from "../context/AuthContext";
 import { toast } from "react-toastify";
 import {
   FaPrint,
@@ -145,6 +146,13 @@ const PrintJob = () => {
   const stepCount = 3;
 
   const [rollNumber, setRollNumber] = useState("");
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user?.registration_number && !rollNumber) {
+      setRollNumber(user.registration_number);
+    }
+  }, [user]);
   const [loading, setLoading] = useState(false);
   const [previewPages, setPreviewPages] = useState([]);
   const [showPreview, setShowPreview] = useState(false);

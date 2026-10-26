@@ -9,6 +9,7 @@ const Admin = () => {
   const { admin, loading, logout } = useAdminAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [jobStatusFilter, setJobStatusFilter] = useState('all'); // 'all' | 'pending' | 'completed' | 'delivered' | 'cancelled'
   const [dashboardData, setDashboardData] = useState(null);
   const [printJobs, setPrintJobs] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -22,7 +23,7 @@ const Admin = () => {
   const loadPrintJobs = useCallback(async () => {
     setLoadingData(true);
     try {
-      const response = await apiService.get('/admin/print-jobs?page=1&limit=10');
+      const response = await apiService.get('/admin/print-jobs?page=1&limit=100');
       if (response.data.success) {
         setPrintJobs(response.data.data.jobs);
       }
@@ -81,12 +82,16 @@ const Admin = () => {
   };
 
   const getPdfUrl = (job) => {
-    if (!job?.file_path) return '';
+    if (!job?.file_path || job?.status === 'cancelled') return '';
     return `${getBackendBaseUrl()}/uploads/${job.file_path}`;
   };
 
   const viewPdf = (job) => {
-    if (job.file_path) {
+    if (job?.status === 'cancelled') {
+      alert('File access is restricted for cancelled tasks. Only metadata can be viewed.');
+      return;
+    }
+    if (job?.file_path) {
       const pdfUrl = getPdfUrl(job);
       setPdfViewer({ show: true, url: pdfUrl, jobId: job.id });
     }
@@ -214,14 +219,22 @@ const Admin = () => {
   };
 
   const viewJobPdf = (job) => {
-    if (job.file_path) {
+    if (job?.status === 'cancelled') {
+      alert('File access is restricted for cancelled tasks. Only metadata can be viewed.');
+      return;
+    }
+    if (job?.file_path) {
       const pdfUrl = getPdfUrl(job);
       window.open(pdfUrl, '_blank');
     }
   };
 
   const printJobPdf = (job) => {
-    if (job.file_path) {
+    if (job?.status === 'cancelled') {
+      alert('File access is restricted for cancelled tasks. Only metadata can be viewed.');
+      return;
+    }
+    if (job?.file_path) {
       const pdfUrl = getPdfUrl(job);
       fetch(pdfUrl)
         .then(res => {
@@ -244,7 +257,11 @@ const Admin = () => {
   };
 
   const downloadJobPdf = (job) => {
-    if (job.file_path) {
+    if (job?.status === 'cancelled') {
+      alert('File access is restricted for cancelled tasks. Only metadata can be viewed.');
+      return;
+    }
+    if (job?.file_path) {
       const pdfUrl = getPdfUrl(job);
       fetch(pdfUrl)
         .then(res => {
@@ -283,6 +300,20 @@ const Admin = () => {
     );
   }
   if (!admin) return null;
+
+  const statusCounts = {
+    all: printJobs.length,
+    pending: printJobs.filter(j => j.status === 'pending' || j.status === 'processing').length,
+    completed: printJobs.filter(j => j.status === 'completed').length,
+    delivered: printJobs.filter(j => j.status === 'delivered').length,
+    cancelled: printJobs.filter(j => j.status === 'cancelled').length,
+  };
+
+  const filteredJobs = printJobs.filter(job => {
+    if (jobStatusFilter === 'all') return true;
+    if (jobStatusFilter === 'pending') return job.status === 'pending' || job.status === 'processing';
+    return job.status === jobStatusFilter;
+  });
 
   return (
     <div className="admin-container">
@@ -343,6 +374,18 @@ const Admin = () => {
                     <h3>Completed Jobs</h3>
                     <p className="stat-number completed">{dashboardData.stats.completedJobs}</p>
                   </div>
+                  {dashboardData.stats.deliveredJobs !== undefined && (
+                    <div className="stat-card">
+                      <h3>Delivered Jobs</h3>
+                      <p className="stat-number delivered">{dashboardData.stats.deliveredJobs}</p>
+                    </div>
+                  )}
+                  {dashboardData.stats.cancelledJobs !== undefined && (
+                    <div className="stat-card">
+                      <h3>Cancelled Jobs</h3>
+                      <p className="stat-number cancelled">{dashboardData.stats.cancelledJobs}</p>
+                    </div>
+                  )}
                   <div className="stat-card">
                     <h3>Total Revenue</h3>
                     <p className="stat-number revenue">{formatPrice(dashboardData.stats.totalRevenue)}</p>
@@ -393,14 +436,54 @@ const Admin = () => {
 
         {activeTab === 'print-jobs' && (
           <div className="print-jobs">
-            <h2>Print Jobs Management</h2>
+            <div className="print-jobs-header">
+              <h2>Print Jobs Management</h2>
+            </div>
+
+            {/* Print Jobs Classification Filter Tabs */}
+            <div className="job-filter-tabs">
+              <button
+                className={`filter-tab-btn ${jobStatusFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setJobStatusFilter('all')}
+              >
+                All Tasks <span className="filter-count-badge">{statusCounts.all}</span>
+              </button>
+              <button
+                className={`filter-tab-btn pending ${jobStatusFilter === 'pending' ? 'active' : ''}`}
+                onClick={() => setJobStatusFilter('pending')}
+              >
+                Pending Tasks <span className="filter-count-badge">{statusCounts.pending}</span>
+              </button>
+              <button
+                className={`filter-tab-btn completed ${jobStatusFilter === 'completed' ? 'active' : ''}`}
+                onClick={() => setJobStatusFilter('completed')}
+              >
+                Completed <span className="filter-count-badge">{statusCounts.completed}</span>
+              </button>
+              <button
+                className={`filter-tab-btn delivered ${jobStatusFilter === 'delivered' ? 'active' : ''}`}
+                onClick={() => setJobStatusFilter('delivered')}
+              >
+                Delivered <span className="filter-count-badge">{statusCounts.delivered}</span>
+              </button>
+              <button
+                className={`filter-tab-btn cancelled ${jobStatusFilter === 'cancelled' ? 'active' : ''}`}
+                onClick={() => setJobStatusFilter('cancelled')}
+              >
+                Cancelled <span className="filter-count-badge">{statusCounts.cancelled}</span>
+              </button>
+            </div>
             
             {loadingData ? (
               <div className="loading">Loading jobs...</div>
+            ) : filteredJobs.length === 0 ? (
+              <div className="no-jobs-card">
+                <p>No print jobs found in category <strong>{jobStatusFilter === 'all' ? 'All Tasks' : jobStatusFilter}</strong>.</p>
+              </div>
             ) : (
               <div className="jobs-grid">
-                {printJobs.map(job => (
-                  <div key={job.id} className="job-card">
+                {filteredJobs.map(job => (
+                  <div key={job.id} className={`job-card ${job.status}`}>
                     <div className="job-header">
                       <h3>#{job.tracking_number}</h3>
                       <span className={`status-badge ${job.status}`}>
@@ -409,6 +492,7 @@ const Admin = () => {
                     </div>
                     <div className="job-details">
                       <p><strong>Customer:</strong> {job.customer_name}</p>
+                      {job.customer_email && <p><strong>Email:</strong> {job.customer_email}</p>}
                       <p><strong>Type:</strong> {job.print_type}</p>
                       <p><strong>Quantity:</strong> {job.quantity}</p>
                       <p><strong>Price:</strong> {formatPrice(job.total_price)}</p>
@@ -416,40 +500,52 @@ const Admin = () => {
                       <p><strong>Paper Size:</strong> {job.paper_size || "A4"}</p>
                       <p><strong>Binding:</strong> {job.binding_type || "N/A"}</p>
                     </div>
-                    <div className="job-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <button
-                        onClick={() => job.file_path ? viewJobPdf(job) : alert('No PDF available for this job.')}
-                        className="btn btn-primary"
-                        title={job.file_path ? 'View PDF' : 'No PDF available'}
-                        disabled={!job.file_path}
-                      >
-                        View
-                      </button>
-                      <button
-                        onClick={() => job.file_path ? printJobPdf(job) : alert('No PDF available for this job.')}
-                        className="btn btn-success"
-                        title={job.file_path ? 'Print PDF' : 'No PDF available'}
-                        disabled={!job.file_path}
-                      >
-                        Print
-                      </button>
-                      <button
-                        onClick={() => job.file_path ? downloadJobPdf(job) : alert('No PDF available for this job.')}
-                        className="btn btn-info"
-                        title={job.file_path ? 'Download PDF' : 'No PDF available'}
-                        disabled={!job.file_path}
-                      >
-                        Download
-                      </button>
+
+                    <div className="job-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      {/* Cancelled jobs: Admin can only view metadata and cannot access files */}
+                      {job.status === 'cancelled' ? (
+                        <div className="cancelled-file-restricted" title="File access is restricted for cancelled tasks. Only metadata is available.">
+                          <span className="lock-icon">🔒</span>
+                          <span className="restricted-text">File Access Restricted</span>
+                        </div>
+                      ) : (
+                        <div className="file-btn-group" style={{ display: 'flex', gap: '0.4rem' }}>
+                          <button
+                            onClick={() => job.file_path ? viewJobPdf(job) : alert('No PDF available for this job.')}
+                            className="btn btn-primary"
+                            title={job.file_path ? 'View PDF' : 'No PDF available'}
+                            disabled={!job.file_path}
+                          >
+                            View
+                          </button>
+                          <button
+                            onClick={() => job.file_path ? printJobPdf(job) : alert('No PDF available for this job.')}
+                            className="btn btn-success"
+                            title={job.file_path ? 'Print PDF' : 'No PDF available'}
+                            disabled={!job.file_path}
+                          >
+                            Print
+                          </button>
+                          <button
+                            onClick={() => job.file_path ? downloadJobPdf(job) : alert('No PDF available for this job.')}
+                            className="btn btn-info"
+                            title={job.file_path ? 'Download PDF' : 'No PDF available'}
+                            disabled={!job.file_path}
+                          >
+                            Download
+                          </button>
+                        </div>
+                      )}
+
                       <select
                         value={job.status}
                         onChange={(e) => updateJobStatus(job.id, e.target.value)}
                         className="status-select"
-                        style={{ marginLeft: '0.5rem' }}
                       >
                         <option value="pending">Pending</option>
                         <option value="processing">Processing</option>
                         <option value="completed">Completed</option>
+                        <option value="delivered">Delivered</option>
                         <option value="cancelled">Cancelled</option>
                       </select>
                     </div>

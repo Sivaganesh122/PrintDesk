@@ -8,6 +8,7 @@ import {
 import logo from './nialogo-removebg.png';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
+import StudentAuthCard from '../components/StudentAuthCard';
 
 // --- Mesh Animated Background ---
 function AnimatedBackground() {
@@ -154,18 +155,13 @@ const Home = () => {
             variants={staggerContainer}
           >
             <motion.h1 variants={fadeItem}>
-              The <span>Academic Printing</span>
+              PrintDesk <span>Portal</span>
             </motion.h1>
             <motion.p className="hero-subtitle" variants={fadeItem}>
-              A modern solution for students and departments to print documents securely and efficiently on campus.
+              A modern solution for students, faculty, and departments to print documents securely and efficiently on campus.
             </motion.p>
-            <motion.div className="hero-actions" variants={fadeItem}>
-              <button onClick={handleStartPrintJob} className="primary-btn">
-                Start Printing <FaArrowRight className="btn-icon" />
-              </button>
-              <button onClick={handleTrackOrder} className="secondary-btn">
-                Track Order
-              </button>
+            <motion.div className="hero-auth-box-wrapper" variants={fadeItem}>
+              <StudentAuthCard initialTab="login" />
             </motion.div>
           </motion.div>
           <motion.div
@@ -314,7 +310,11 @@ const Home = () => {
         }
         .hero {
           width: 100%;
-          padding: 5.3rem 0 3.7rem 0;
+          min-height: calc(100vh - 80px);
+          padding: 42px 0 1rem 0;
+          display: flex;
+          align-items: center;
+          box-sizing: border-box;
           position: relative;
         }
         .hero-wrapper {
@@ -323,22 +323,23 @@ const Home = () => {
           justify-content: space-between;
           max-width: 1200px;
           margin: 0 auto;
-          gap: 3.5rem;
+          gap: 2.2rem;
+          max-width: 1220px;
+          width: 100%;
+          padding: 0 1.5rem;
           position: relative;
           z-index: 2;
         }
         .hero-content {
-          flex: 1.1;
-
-
-          
-          padding: 2.5rem 2rem 2.2rem 2rem;
+          flex: 1.25;
+          padding: 0;
         }
         .hero-content h1 {
-          font-size: 3.2rem;
+          font-size: clamp(1.9rem, 2.9vw, 2.65rem);
+          white-space: nowrap;
           font-weight: 700;
-          line-height: 1.19;
-          margin-bottom: 1.4rem;
+          line-height: 1.15;
+          margin-bottom: 0.5rem;
           color: var(--text-dark);
         }
         .hero-content h1 span {
@@ -355,11 +356,17 @@ const Home = () => {
           border-radius: 5px; opacity: 0.34;
         }
         .hero-subtitle {
-          font-size: 1.18rem;
+          font-size: 1.15rem;
           color: var(--text-medium);
-          margin-bottom: 2.3rem;
-          max-width: 540px;
+          margin-bottom: 0.75rem;
+          max-width: 580px;
+          font-size: 1.02rem;
+          line-height: 1.45;
           font-weight: 500;
+        }
+        .hero-auth-box-wrapper {
+          width: 100%;
+          max-width: 480px;
         }
         .hero-actions {
           display: flex;
@@ -404,7 +411,7 @@ const Home = () => {
           min-width: 210px;
         }
         .hero-logo-img {
-          width: 100%; max-width: 370px; height: auto;
+          width: 100%; max-width: 320px; height: auto;
           filter: drop-shadow(0 8px 26px rgba(92,77,61,0.09));
           animation: floatLogo 8.8s ease-in-out infinite;
           transition: filter 0.21s;

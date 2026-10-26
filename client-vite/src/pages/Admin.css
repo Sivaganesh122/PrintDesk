@@ -179,6 +179,14 @@
   color: #27ae60;
 }
 
+.stat-number.delivered {
+  color: #a855f7;
+}
+
+.stat-number.cancelled {
+  color: #f87171;
+}
+
 .stat-number.revenue {
   color: #2ecc71;
 }
@@ -241,6 +249,11 @@
   color: #27ae60;
 }
 
+.status-badge.delivered {
+  background: rgba(168, 85, 247, 0.25);
+  color: #d8b4fe;
+}
+
 .status-badge.cancelled {
   background: rgba(231, 76, 60, 0.2);
   color: #e74c3c;
@@ -254,6 +267,95 @@
 .print-jobs h2 {
   margin: 0 0 1.5rem 0;
   font-size: 1.8rem;
+}
+
+/* Print Jobs Classification Filter Tabs */
+.job-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.5rem;
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.filter-tab-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #e2e8f0;
+  padding: 0.6rem 1.15rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.filter-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.filter-tab-btn.active {
+  background: #ffffff;
+  color: #1e293b;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.filter-tab-btn.active .filter-count-badge {
+  background: #1e293b;
+  color: #ffffff;
+}
+
+.filter-count-badge {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  font-size: 0.78rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 12px;
+  font-weight: 700;
+  min-width: 22px;
+  text-align: center;
+}
+
+/* Empty Jobs State */
+.no-jobs-card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f1f5f9;
+  font-size: 1.05rem;
+}
+
+/* Cancelled Job File Access Restricted Badge */
+.cancelled-file-restricted {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  padding: 0.45rem 0.85rem;
+  border-radius: 6px;
+  color: #fca5a5;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: not-allowed;
+  user-select: none;
+}
+
+.cancelled-file-restricted .lock-icon {
+  font-size: 0.95rem;
 }
 
 .jobs-grid {
