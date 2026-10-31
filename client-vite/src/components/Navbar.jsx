@@ -48,6 +48,45 @@ const NavigationBar = () => {
     return null;
   }
 
+  // Dedicated Student Navbar when authenticated
+  if (isAuthenticated && user) {
+    return (
+      <nav
+        ref={navRef}
+        className={`navbar student-navbar ${navVisible ? 'visible' : 'hidden'}`}
+        style={{
+          transform: navVisible ? 'translateY(0)' : 'translateY(-100%)',
+          transition: 'transform 0.3s ease-in-out',
+        }}
+      >
+        <div className="student-nav-container">
+          {/* Left side: NIA Logo */}
+          <Link to="/" className="student-nav-brand" title="PrintDesk Home">
+            <img src={logo} alt="NIA Logo" className="student-nav-logo" />
+          </Link>
+
+          {/* Middle: Student name with welcome greeting */}
+          <div className="student-nav-welcome">
+            <span className="welcome-tag">Welcome back,</span>
+            <span className="welcome-user-name">{user.name}</span>
+          </div>
+
+          {/* Right side: Logout button */}
+          <div className="student-nav-actions">
+            <button
+              onClick={handleLogout}
+              className="student-nav-logout-btn"
+              title="Logout from PrintDesk"
+            >
+              <FaSignOutAlt className="logout-icon" />
+              <span className="logout-text">Logout</span>
+            </button>
+          </div>
+        </div>
+      </nav>
+    );
+  }
+
   return (
     <>
       <nav

@@ -3,12 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import {
-  FaClock, FaShieldAlt, FaUniversity, FaArrowRight,FaMoneyBillWave,FaFileAlt
+  FaClock, FaShieldAlt, FaUniversity, FaArrowRight, FaMoneyBillWave, FaFileAlt,
+  FaPrint, FaSearch, FaMapMarkerAlt
 } from 'react-icons/fa';
 import logo from './nialogo-removebg.png';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import StudentAuthCard from '../components/StudentAuthCard';
+import { useAuth } from '../context/AuthContext';
+import './Home.css';
 
 // --- Mesh Animated Background ---
 function AnimatedBackground() {
@@ -121,6 +124,7 @@ const fadeItem = {
 };
 
 const Home = () => {
+  const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -134,6 +138,138 @@ const Home = () => {
 
   const handleStartPrintJob = () => navigate('/print-job');
   const handleTrackOrder = () => navigate('/tracking');
+
+  if (isAuthenticated && user) {
+    return (
+      <div className="home-container student-portal-page">
+        <Helmet>
+          <title>{user.name} - Student Portal | PrintDesk</title>
+          <meta name="description" content="Access document printing, order tracking, and account details" />
+        </Helmet>
+
+        {/* Animated background */}
+        <AnimatedBackground />
+
+        <div className="student-portal-wrapper">
+          {/* Welcome Profile Card */}
+          <motion.div
+            className="student-profile-hero"
+            initial={{ opacity: 0, y: 25 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <div className="student-profile-info-grid">
+              <div className="student-avatar-badge">
+                <span className="avatar-initials">
+                  {user.name ? user.name.charAt(0).toUpperCase() : 'S'}
+                </span>
+              </div>
+              <div className="student-info-meta">
+                <div className="student-badge-pill">Active Student</div>
+                <h1 className="student-portal-heading">Welcome back, <span>{user.name}</span></h1>
+                <div className="student-meta-chips">
+                  <span className="meta-chip">
+                    <strong>Reg No:</strong> {user.registration_number}
+                  </span>
+                  <span className="meta-chip">
+                    <strong>Dept:</strong> {user.department}
+                  </span>
+                  <span className="meta-chip">
+                    <strong>Email:</strong> {user.email}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Quick Action Cards */}
+          <div className="student-action-cards-grid">
+            {/* Start Print Job Card */}
+            <motion.div
+              className="student-action-card primary-card"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              onClick={handleStartPrintJob}
+            >
+              <div className="card-top-row">
+                <div className="action-icon-wrapper primary-icon">
+                  <FaPrint />
+                </div>
+                <span className="card-tag">Fast & Secure</span>
+              </div>
+              <h3>Start New Print Job</h3>
+              <p>Upload PDF, Word, or image documents, configure color or black & white, page ranges, and binding preferences.</p>
+              <button
+                className="card-launch-btn primary-btn"
+                onClick={(e) => { e.stopPropagation(); handleStartPrintJob(); }}
+              >
+                <span>Print Document</span>
+                <FaArrowRight />
+              </button>
+            </motion.div>
+
+            {/* Track Orders Card */}
+            <motion.div
+              className="student-action-card secondary-card"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              onClick={handleTrackOrder}
+            >
+              <div className="card-top-row">
+                <div className="action-icon-wrapper secondary-icon">
+                  <FaSearch />
+                </div>
+                <span className="card-tag">Live Status</span>
+              </div>
+              <h3>Track My Orders</h3>
+              <p>Check the live status of submitted print jobs, view completion tokens, and pick up verified copies at the counter.</p>
+              <button
+                className="card-launch-btn secondary-btn"
+                onClick={(e) => { e.stopPropagation(); handleTrackOrder(); }}
+              >
+                <span>Track Status</span>
+                <FaArrowRight />
+              </button>
+            </motion.div>
+          </div>
+
+          {/* Information & Rates Strip */}
+          <motion.div
+            className="student-info-strip"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+          >
+            <div className="info-strip-item">
+              <FaMoneyBillWave className="strip-icon" />
+              <div>
+                <strong>Affordable Campus Rates</strong>
+                <span>B&W: ₹1 / page • Color: ₹2 / page</span>
+              </div>
+            </div>
+            <div className="info-strip-divider" />
+            <div className="info-strip-item">
+              <FaMapMarkerAlt className="strip-icon" />
+              <div>
+                <strong>Collection Counter</strong>
+                <span>Central Reprographics Desk (Ground Floor)</span>
+              </div>
+            </div>
+            <div className="info-strip-divider" />
+            <div className="info-strip-item">
+              <FaClock className="strip-icon" />
+              <div>
+                <strong>Operating Hours</strong>
+                <span>Mon – Fri: 8:30 AM – 5:30 PM</span>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="home-container">
@@ -245,318 +381,6 @@ const Home = () => {
         </div>
       </section>
 
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
-
-        :root {
-          --primary-color: #dab66a;
-          --primary-light: #e8c9a0;
-          --primary-highlight: #ffe7bc;
-          --secondary-color: #b38b59;
-          --text-dark: #5C4D3D;
-          --text-medium: #7A6B5B;
-          --text-light: #cdb78c;
-          --light-bg: #fcfaef;
-          --pure-white: #FDFDFD;
-          --panel-bg: #fcfaeed5;
-          --shadow: 0 4px 20px rgba(214,181,125,0.13);
-          --shadow-hover: 0 8px 30px rgba(186,154,89,0.13);
-          --transition: all 0.37s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        * { scroll-behavior: smooth; }
-
-        .home-container {
-          font-family: 'Poppins', sans-serif;
-          color: var(--text-dark);
-          min-height: 100vh;
-          background-color: var(--light-bg);
-          position: relative;
-          z-index: 1;
-          padding-top: 110px;
-        }
-          .feature-card2 {
-  background: var(--pure-white);
-  border-radius: 14px;
-  padding: 2.2rem 1.6rem;
-  box-shadow: var(--shadow);
-  transition: var(--transition);
-  min-height: 255px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;  /* fixed spelling */
-  text-align: center;
-  margin: 0 auto; /* if you want to center the card itself too */
-}
-
-        .animated-bg-layer {
-          position: fixed;
-          top: 0; left: 0; width: 100vw; height: 100vh;
-          z-index: 0; pointer-events: none; overflow: hidden;
-          background: radial-gradient(ellipse at 60% 11%, #fff8e668 36%, transparent 74%),
-            linear-gradient(120deg, #f7f1de 64%, #e7ce97 100%);
-          transition: background 2.2s cubic-bezier(0.23,1,0.32,1);
-        }
-        .mesh-bg { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; }
-        .petals-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-        .petal-orb { opacity: 0.82; }
-
-        .section-container {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 0 2rem;
-          position: relative;
-          z-index: 2;
-        }
-        .hero {
-          width: 100%;
-          min-height: calc(100vh - 80px);
-          padding: 42px 0 1rem 0;
-          display: flex;
-          align-items: center;
-          box-sizing: border-box;
-          position: relative;
-        }
-        .hero-wrapper {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          max-width: 1200px;
-          margin: 0 auto;
-          gap: 2.2rem;
-          max-width: 1220px;
-          width: 100%;
-          padding: 0 1.5rem;
-          position: relative;
-          z-index: 2;
-        }
-        .hero-content {
-          flex: 1.25;
-          padding: 0;
-        }
-        .hero-content h1 {
-          font-size: clamp(1.9rem, 2.9vw, 2.65rem);
-          white-space: nowrap;
-          font-weight: 700;
-          line-height: 1.15;
-          margin-bottom: 0.5rem;
-          color: var(--text-dark);
-        }
-        .hero-content h1 span {
-          color: var(--secondary-color);
-          position: relative;
-        }
-        .hero-content h1 span::after {
-          content: '';
-          position: absolute;
-          bottom: 5px;
-          left: 0; width: 100%; height: 13px;
-          background: linear-gradient(90deg, var(--primary-highlight) 30%, var(--primary-color) 80%);
-          z-index: -1;
-          border-radius: 5px; opacity: 0.34;
-        }
-        .hero-subtitle {
-          font-size: 1.15rem;
-          color: var(--text-medium);
-          margin-bottom: 0.75rem;
-          max-width: 580px;
-          font-size: 1.02rem;
-          line-height: 1.45;
-          font-weight: 500;
-        }
-        .hero-auth-box-wrapper {
-          width: 100%;
-          max-width: 480px;
-        }
-        .hero-actions {
-          display: flex;
-          gap: 1rem;
-        }
-        .primary-btn, .secondary-btn {
-          padding: 0.90rem 1.8rem;
-          border-radius: 8px;
-          font-weight: 600;
-          font-size: 1.06rem;
-          cursor: pointer;
-          transition: var(--transition);
-          display: flex; align-items: center; gap: 0.67rem;
-          font-family: 'Poppins', sans-serif;
-          box-shadow: var(--shadow);
-        }
-        .primary-btn {
-          background: var(--primary-color);
-          color: #fff;
-          border: none;
-        }
-        .primary-btn:hover {
-          background: var(--secondary-color);
-          transform: translateY(-2px) scale(1.04);
-        }
-        .secondary-btn {
-          background: transparent;
-          color: var(--primary-color);
-          border: 2px solid var(--primary-color);
-        }
-        .secondary-btn:hover {
-          background: rgba(212, 167, 106, 0.11);
-          color: var(--secondary-color);
-        }
-        .btn-icon { transition: transform 0.4s ease; }
-        .primary-btn:hover .btn-icon { transform: translateX(6px);}
-        .hero-image {
-          flex: 1;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          min-width: 210px;
-        }
-        .hero-logo-img {
-          width: 100%; max-width: 320px; height: auto;
-          filter: drop-shadow(0 8px 26px rgba(92,77,61,0.09));
-          animation: floatLogo 8.8s ease-in-out infinite;
-          transition: filter 0.21s;
-        }
-        @keyframes floatLogo {
-          0% { transform: translateY(5px);}
-          50% { transform: translateY(-19px);}
-          100% {transform: translateY(5px);}
-        }
-
-        .features {
-          padding: 5.2rem 0 3.5rem 0;
-          position: relative;
-        }
-        .section-header {
-          text-align: center;
-          margin-bottom: 3.3rem;
-        }
-        .section-header h2 {
-          font-size: 2.15rem;
-          font-weight: 600;
-          color: var(--text-dark);
-          margin-bottom: 0.6rem;
-        }
-        .section-header p {
-          font-size: 1.12rem;
-          color: var(--text-medium);
-          max-width: 550px;
-          margin: 0 auto;
-        }
-        .features-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
-          gap: 2rem;
-        }
-        .feature-card {
-          background: var(--pure-white);
-          border-radius: 14px;
-          padding: 2.2rem 1.6rem;
-          box-shadow: var(--shadow);
-          transition: var(--transition);
-          text-align: center;
-          min-height: 255px;
-        }
-        .feature-card:hover {
-          transform: translateY(-7px) scale(1.022);
-          box-shadow: var(--shadow-hover);
-        }
-        .card-icon {
-          width: 61px;
-          height: 61px;
-          margin: 0 auto 1.12rem;
-          background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-highlight) 100%);
-          border-radius: 15px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: #fff;
-          font-size: 1.91rem;
-          box-shadow: 0 3px 15px rgba(212,167,106,0.085);
-        }
-        .feature-card h3 {
-          font-size: 1.17rem;
-          margin-bottom: 1rem;
-          color: var(--text-dark);
-          font-weight: 700;
-        }
-        .feature-card p {
-          color: var(--text-medium);
-          font-size: 1rem;
-          font-weight: 500;
-        }
-
-        .cta-section {
-          background: linear-gradient(115deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-          padding: 4.2rem 0;
-          text-align: center;
-          color: var(--pure-white);
-          position: relative;
-          overflow: hidden;
-        }
-        .cta-content {
-          max-width: 660px;
-          margin: 0 auto;
-        }
-        .cta-content h2 {
-          font-size: 2.09rem;
-          margin-bottom: 1.23rem;
-          font-weight: 800;
-          line-height: 1.25;
-        }
-        .cta-btn {
-          background: var(--pure-white);
-          color: var(--secondary-color);
-          border: none;
-          padding: 1.13rem 2.2rem;
-          font-size: 1.09rem;
-          font-weight: 700;
-          border-radius: 9px;
-          cursor: pointer;
-          transition: var(--transition);
-          box-shadow: var(--shadow);
-        }
-        .cta-btn:hover {
-          color: var(--primary-color);
-          background: #fcf8ee;
-          transform: translateY(-2px) scale(1.05);
-        }
-
-        /* Responsive styles */
-        @media (max-width: 1120px) {
-          .hero-content h1 { font-size: 2.48rem;}
-          .hero-logo-img { max-width: 250px; }
-        }
-        @media (max-width: 900px) {
-          .hero-wrapper {
-            flex-direction: column;
-            align-items: center;
-            gap: 2.65rem;
-            text-align: center;
-            padding: 0;
-          }
-          .hero-content {align-items:center;}
-          .hero-subtitle {margin: 0 auto;}
-          .hero-image { width: 100%; max-width: 310px; margin: 0 auto;}
-        }
-        @media (max-width: 768px) {
-          .section-header h2 { font-size: 1.41rem;}
-          .hero-content h1 { font-size: 1.71rem;}
-          .hero-logo-img { height:0px;}
-          .section-container { padding: 0 1.35rem; }
-          
-        }
-        @media (max-width: 560px) {
-          .hero-content h1 { font-size: 1.22rem;}
-          .hero-logo-img { max-width: 75px;}
-          .hero-actions {
-            flex-direction: column;
-            gap: 0.6rem;
-            width: 100%;
-          }
-          .primary-btn, .secondary-btn { width: 100%; justify-content: center; }
-          .features-grid { grid-template-columns: 1fr;}
-        }
-      `}</style>
     </div>
   );
 };
