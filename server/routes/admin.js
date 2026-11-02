@@ -9,6 +9,15 @@ const { uploadsDir } = require('../config/localStorage');
 
 const router = express.Router();
 
+router.use(authenticateAdmin);
+
+router.param('id', (req, res, next, id) => {
+  if (!/^\d+$/.test(id)) {
+    return res.status(400).json({ error: 'Invalid print job id' });
+  }
+  next();
+});
+
 // Get dashboard stats
 router.get('/dashboard', asyncHandler(async (req, res) => {
   const client = await pool.connect();
@@ -19,7 +28,7 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
     const totalJobs = parseInt(totalJobsResult.rows[0].count);
 
     // Get pending jobs
-    const pendingJobsResult = await client.query("SELECT COUNT(*) FROM print_jobs WHERE status = 'pending'");
+    const pendingJobsResult = await client.query("SELECT COUNT(*) FROM print_jobs WHERE status IN ('pending', 'processing')");
     const pendingJobs = parseInt(pendingJobsResult.rows[0].count);
 
     // Get completed jobs
@@ -65,15 +74,20 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
 
 // Get all print jobs with pagination
 router.get('/print-jobs', asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, status } = req.query;
+  const { status } = req.query;
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
   const offset = (page - 1) * limit;
 
   const client = await pool.connect();
 
   try {
     let query = `
-    SELECT id, tracking_number, customer_name, customer_email, print_type, 
-       quantity, total_price, status, created_at, file_path  
+    SELECT id, tracking_number, customer_name, customer_email, print_type,
+       quantity, copies, double_sided, selected_pages, paper_size, color_type, binding,
+       original_filename, total_price, status, created_at, file_path, order_number,
+       ROW_NUMBER() OVER (PARTITION BY order_number ORDER BY id) AS order_document_number,
+       COUNT(*) OVER (PARTITION BY order_number) AS order_document_count
 FROM print_jobs
     `;
     let countQuery = 'SELECT COUNT(*) FROM print_jobs';
@@ -87,8 +101,8 @@ FROM print_jobs
       params.push(status);
     }
 
-    query += ` ORDER BY created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
-    params.push(parseInt(limit), offset);
+    query += ` ORDER BY created_at DESC, id ASC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
+    params.push(limit, offset);
 
     const [jobsResult, countResult] = await Promise.all([
       client.query(query, params),
@@ -103,11 +117,11 @@ FROM print_jobs
       data: {
         jobs: jobsResult.rows,
         pagination: {
-          currentPage: parseInt(page),
+          currentPage: page,
           totalPages,
           totalJobs,
-          hasNext: parseInt(page) < totalPages,
-          hasPrev: parseInt(page) > 1
+          hasNext: page < totalPages,
+          hasPrev: page > 1
         }
       }
     });
@@ -125,8 +139,9 @@ router.get('/print-jobs/:id', asyncHandler(async (req, res) => {
   try {
     const result = await client.query(
       `SELECT id, tracking_number, customer_name, customer_email, customer_phone,
-       print_type, quantity, paper_size, paper_type, color_type, binding, urgency,
-       total_price, special_instructions, status, created_at, updated_at
+       print_type, quantity, copies, double_sided, selected_pages, paper_size, paper_type,
+       color_type, binding, urgency, original_filename, order_number, total_price, special_instructions,
+       status, created_at, updated_at
        FROM print_jobs WHERE id = $1`,
       [id]
     );
@@ -176,8 +191,8 @@ router.patch('/print-jobs/:id/status', asyncHandler(async (req, res) => {
   }
 }));
 
-// Serve PDF file for a print job (admin only)
-router.get('/print-jobs/:id/file', authenticateAdmin, asyncHandler(async (req, res) => {
+// Serve the uploaded file for a print job
+router.get('/print-jobs/:id/file', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const client = await pool.connect();
   try {
@@ -195,7 +210,7 @@ router.get('/print-jobs/:id/file', authenticateAdmin, asyncHandler(async (req, r
     if (!filePath) {
       return res.status(404).json({ error: 'No file associated with this print job' });
     }
-    const absPath = path.join(uploadsDir, filePath);
+    const absPath = path.join(uploadsDir, path.basename(filePath));
     try {
       await fs.access(absPath);
     } catch (err) {

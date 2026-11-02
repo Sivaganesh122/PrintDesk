@@ -1,250 +1,212 @@
 const express = require('express');
-const multer = require('multer');
-const { body, validationResult } = require('express-validator');
+const crypto = require('crypto');
+const fs = require('fs').promises;
 const { pool } = require('../config/db');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { authenticateRequester } = require('../middleware/auth');
+const { uploadDocuments } = require('../middleware/upload');
 const { logger } = require('../utils/logger');
 const { handleFileUpload } = require('../config/localStorage');
 
 const router = express.Router();
 
-// Configure multer for file uploads
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 25 * 1024 * 1024 // 25MB limit
+// Keep in sync with PRICING in client-vite/src/context/PrintJobContext.jsx
+const PRICE_PER_PAGE = { bw: 1, color: 2 };
+const BINDING_PRICE_PER_COPY = { None: 0, Spiral: 30, Paper: 10 };
+const PAPER_SIZES = ['A4', 'A3'];
+const MAX_COPIES = 10;
+// The client offers cancellation for 30 seconds; the extra time covers a slow request
+const CANCEL_WINDOW_SECONDS = 40;
+
+const generateNumber = (prefix) => `${prefix}${Date.now()}${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+
+const parseDocuments = (value) => {
+  try {
+    const documents = JSON.parse(value);
+    return Array.isArray(documents) ? documents : null;
+  } catch (error) {
+    return null;
   }
-});
+};
 
-// File upload endpoint
-router.post('/upload', 
-  upload.single('file'),
+const isValidPageList = (pages) => Array.isArray(pages)
+  && pages.length > 0
+  && pages.every((page) => Number.isInteger(page) && page > 0)
+  && new Set(pages).size === pages.length;
+
+const getSpecificationError = (spec) => {
+  if (!spec || !isValidPageList(spec.selectedPages)) {
+    return 'select at least one page';
+  }
+  if (!Number.isInteger(spec.copies) || spec.copies < 1 || spec.copies > MAX_COPIES) {
+    return `copies must be between 1 and ${MAX_COPIES}`;
+  }
+  if (!PAPER_SIZES.includes(spec.paperSize)) {
+    return 'invalid paper size';
+  }
+  if (!Object.keys(BINDING_PRICE_PER_COPY).includes(spec.bindingType)) {
+    return 'invalid binding type';
+  }
+  return null;
+};
+
+const calculatePrice = ({ selectedPages, color, copies, bindingType }) => {
+  const pagesCost = selectedPages.length * copies * (color ? PRICE_PER_PAGE.color : PRICE_PER_PAGE.bw);
+  const bindingCost = BINDING_PRICE_PER_COPY[bindingType] * copies;
+  return { pagesCost, bindingCost, totalPrice: pagesCost + bindingCost };
+};
+
+// Create an order with one print job per document. The "files" field holds the documents and
+// the "documents" field holds a JSON array with the specification for each file, in the same order.
+router.post('/create',
+  authenticateRequester,
+  uploadDocuments,
   asyncHandler(async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: 'File is required' });
+    if (req.requester.role === 'admin') {
+      return res.status(403).json({ error: 'Log in as a student or department to submit a print job' });
     }
 
-    try {
-      // Upload file to storage
-      const fileResult = await handleFileUpload(req.file);
-      const fileKey = fileResult.filename;
-
-      logger.info('File uploaded:', { 
-        originalName: req.file.originalname,
-        filename: fileKey,
-        size: req.file.size
-      });
-
-      res.status(200).json({
-        success: true,
-        message: 'File uploaded successfully',
-        data: {
-          stored_filename: fileKey,
-          original_name: req.file.originalname,
-          size: req.file.size
-        }
-      });
-    } catch (error) {
-      logger.error('Error uploading file:', error);
-      res.status(500).json({ error: 'Failed to upload file' });
-    }
-  })
-);
-
-// Create print job (simplified for frontend)
-router.post('/create', 
-  upload.single('file'),
-  [
-    body('rollNumber').notEmpty().withMessage('Roll number is required'),
-    body('totalPages').isInt({ min: 1 }).withMessage('Total pages must be at least 1'),
-    body('totalPrice').isFloat({ min: 0 }).withMessage('Total price must be positive')
-  ],
-  asyncHandler(async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ error: errors.array()[0].msg });
+    const specs = parseDocuments(req.body.documents);
+    if (!specs || specs.length !== req.files.length) {
+      return res.status(400).json({ error: 'Each uploaded file needs its own print specification' });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ error: 'File is required' });
+    for (let i = 0; i < specs.length; i++) {
+      const specError = getSpecificationError(specs[i]);
+      if (specError) {
+        return res.status(400).json({ error: `${req.files[i].originalname}: ${specError}` });
+      }
     }
 
-    const {
-      rollNumber,
-      totalPages,
-      totalPrice,
-      colorPages = 0,
-      bwPages = 0,
-      printOptions = {}
-    } = req.body;
-
+    const orderNumber = generateNumber('ORD');
+    const storedFiles = [];
     const client = await pool.connect();
 
     try {
-      // Upload file to storage
-      const fileResult = await handleFileUpload(req.file);
-      const fileKey = fileResult.filename;
+      await client.query('BEGIN');
 
-      // Generate tracking number
-      const trackingNumber = `TRK${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const documents = [];
+      for (let i = 0; i < specs.length; i++) {
+        const spec = specs[i];
+        const file = req.files[i];
+        const { pagesCost, bindingCost, totalPrice } = calculatePrice(spec);
 
-      // Create print job with simplified data
-      const result = await client.query(
-        `INSERT INTO print_jobs (
-          tracking_number, customer_name, customer_email, customer_phone, print_type, 
-          quantity, paper_size, paper_type, color_type, binding, 
-          urgency, total_price, special_instructions, file_path, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) 
-        RETURNING id, tracking_number`,
-        [
-          trackingNumber, // tracking_number
-          rollNumber, // customer_name
-          `${rollNumber}@example.com`, // customer_email (placeholder)
-          'N/A', // customer_phone (placeholder)
-          'Academic Print', // print_type
-          totalPages, // quantity
-          'A4', // paper_size (default)
-          'Standard', // paper_type (default)
-          colorPages > 0 ? 'Color' : 'Black & White', // color_type
-          'None', // binding (default)
-          'Normal', // urgency (default)
-          parseFloat(totalPrice), // total_price
-          `Pages: ${totalPages}, Color: ${colorPages}, BW: ${bwPages}`, // special_instructions
-          fileKey, // file_path
-          'pending' // status
-        ]
-      );
+        const fileResult = await handleFileUpload(file);
+        storedFiles.push(fileResult.path);
 
-      const printJob = result.rows[0];
+        const result = await client.query(
+          `INSERT INTO print_jobs (
+            tracking_number, customer_name, customer_email, customer_phone, print_type,
+            quantity, paper_size, paper_type, color_type, binding,
+            urgency, total_price, file_path, status,
+            copies, double_sided, selected_pages, original_filename, order_number
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+          RETURNING id, tracking_number`,
+          [
+            generateNumber('TRK'),
+            req.requester.ownerName,
+            req.requester.email,
+            'N/A',
+            'Academic Print',
+            spec.selectedPages.length,
+            spec.paperSize,
+            'Standard',
+            spec.color ? 'Color' : 'Black & White',
+            spec.bindingType,
+            'Normal',
+            totalPrice,
+            fileResult.filename,
+            'pending',
+            spec.copies,
+            Boolean(spec.doubleSided),
+            spec.selectedPages,
+            file.originalname,
+            orderNumber
+          ]
+        );
 
-      logger.info('Print job created:', { 
-        id: printJob.id, 
-        trackingNumber: printJob.tracking_number,
-        customerName: rollNumber
+        documents.push({
+          id: result.rows[0].id,
+          trackingNumber: result.rows[0].tracking_number,
+          fileName: file.originalname,
+          pages: spec.selectedPages.length,
+          color: Boolean(spec.color),
+          doubleSided: Boolean(spec.doubleSided),
+          copies: spec.copies,
+          paperSize: spec.paperSize,
+          bindingType: spec.bindingType,
+          pagesCost,
+          bindingCost,
+          totalPrice
+        });
+      }
+
+      await client.query('COMMIT');
+
+      logger.info('Print order created:', {
+        orderNumber,
+        documents: documents.length,
+        customerName: req.requester.ownerName
       });
 
       res.status(201).json({
         success: true,
-        message: 'Print job created successfully',
+        message: 'Print order created successfully',
         data: {
-          id: printJob.id,
-          trackingNumber: printJob.tracking_number
+          orderNumber,
+          customerName: req.requester.ownerName,
+          totalPrice: documents.reduce((sum, document) => sum + document.totalPrice, 0),
+          documents
         }
       });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      await Promise.all(storedFiles.map((filePath) => fs.unlink(filePath).catch(() => {})));
+      throw error;
     } finally {
       client.release();
     }
   })
 );
 
-// Get print job by tracking number
-router.get('/track/:trackingNumber', asyncHandler(async (req, res) => {
-  const { trackingNumber } = req.params;
+// Cancel a whole order shortly after it was submitted
+router.delete('/order/:orderNumber', authenticateRequester, asyncHandler(async (req, res) => {
+  const { orderNumber } = req.params;
 
-  const client = await pool.connect();
+  const result = await pool.query(
+    `SELECT id, status, customer_name,
+       created_at > CURRENT_TIMESTAMP - make_interval(secs => $2) AS can_cancel
+     FROM print_jobs WHERE order_number = $1`,
+    [orderNumber, CANCEL_WINDOW_SECONDS]
+  );
 
-  try {
-    const result = await client.query(
-      `SELECT id, customer_name, customer_email, customer_phone, print_type, 
-       quantity, paper_size, paper_type, color_type, binding, urgency, 
-       total_price, special_instructions, status, created_at, updated_at
-       FROM print_jobs WHERE tracking_number = $1`,
-      [trackingNumber]
-    );
+  const jobs = result.rows;
+  const isOwner = jobs.length > 0
+    && jobs[0].customer_name.trim().toLowerCase() === req.requester.ownerName?.trim().toLowerCase();
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Print job not found' });
-    }
-
-    res.json({
-      success: true,
-      data: result.rows[0]
-    });
-  } finally {
-    client.release();
+  if (!isOwner || jobs.every((job) => job.status === 'cancelled')) {
+    return res.status(404).json({ error: 'Order not found or already cancelled' });
   }
+
+  if (!jobs[0].can_cancel) {
+    return res.status(400).json({ error: 'Order cannot be cancelled after 30 seconds' });
+  }
+
+  if (jobs.some((job) => job.status !== 'pending')) {
+    return res.status(400).json({ error: 'Printing has already started on this order' });
+  }
+
+  await pool.query(
+    `UPDATE print_jobs SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE order_number = $1`,
+    [orderNumber]
+  );
+
+  logger.info('Print order cancelled:', { orderNumber });
+
+  res.json({
+    success: true,
+    message: 'Order cancelled successfully'
+  });
 }));
 
-// Get all print jobs (admin only)
-router.get('/all', asyncHandler(async (req, res) => {
-  const client = await pool.connect();
-
-  try {
-    const result = await client.query(
-      `SELECT id, tracking_number, customer_name, customer_email, 
-       print_type, quantity, total_price, status, created_at
-       FROM print_jobs ORDER BY created_at DESC`
-    );
-
-    res.json({
-      success: true,
-      data: result.rows
-    });
-  } finally {
-    client.release();
-  }
-}));
-
-// Update print job status
-router.patch('/:id/status', 
-  [body('status').isIn(['pending', 'processing', 'completed', 'cancelled']).withMessage('Invalid status')],
-  asyncHandler(async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ error: errors.array()[0].msg });
-    }
-
-    const { id } = req.params;
-    const { status } = req.body;
-
-    const client = await pool.connect();
-
-    try {
-      const result = await client.query(
-        'UPDATE print_jobs SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id',
-        [status, id]
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Print job not found' });
-      }
-
-      logger.info('Print job status updated:', { id, status });
-
-      res.json({
-        success: true,
-        message: 'Status updated successfully'
-      });
-    } finally {
-      client.release();
-    }
-  })
-);
-
-// Cancel/delete print job by tracking number or id
-router.delete('/:token', asyncHandler(async (req, res) => {
-  const { token } = req.params;
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      `UPDATE print_jobs SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP 
-       WHERE tracking_number = $1 OR id::text = $1 RETURNING id, tracking_number`,
-      [token]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Order not found or already cancelled' });
-    }
-
-    logger.info('Print job cancelled:', { token });
-
-    res.json({
-      success: true,
-      message: 'Order cancelled successfully'
-    });
-  } finally {
-    client.release();
-  }
-}));
-
-module.exports = router; 
+module.exports = router;

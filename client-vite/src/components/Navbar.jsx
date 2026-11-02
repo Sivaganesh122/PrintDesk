@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FaUser,  FaSignOutAlt ,FaUserGraduate} from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
 import { useAdminAuth } from '../context/AdminAuthContext';
+import { facultyLogout } from '../context/auth';
 import logo from './nialogo-removebg-preview.png';
 import './Navbar.css'; // Ensure you have the correct path to your CSS file
 
@@ -20,6 +21,14 @@ const NavigationBar = () => {
 
   const handleLogout = () => {
     logout();
+    navigate('/');
+    setMobileMenuOpen(false);
+  };
+
+  const department = localStorage.getItem('faculty_department');
+
+  const handleDepartmentLogout = () => {
+    facultyLogout();
     navigate('/');
     setMobileMenuOpen(false);
   };
@@ -101,11 +110,45 @@ const NavigationBar = () => {
                     
                 
                 </div>
-                <Link to="/faculty-login"  className="nav-link" onClick={handleNavClick}>
+                {department ? (
+                  <>
+                    <Link to="/printjob2" className="nav-link" onClick={handleNavClick}>
+                      <span className="link-text">Department Print</span>
+                      <span className="link-underline"></span>
+                    </Link>
+                    <Link to="/tracking" className="nav-link" onClick={handleNavClick}>
+                      <span className="link-text">Track Request</span>
+                      <span className="link-underline"></span>
+                    </Link>
+                    <div className="nav-user-badge" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-dark)' }}>
+                        {department}
+                      </span>
+                      <button
+                        onClick={handleDepartmentLogout}
+                        title="Logout"
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(218, 182, 106, 0.45)',
+                          borderRadius: '6px',
+                          padding: '3px 8px',
+                          color: 'var(--secondary-color)',
+                          cursor: 'pointer',
+                          fontSize: '0.82rem',
+                          fontWeight: 600
+                        }}
+                      >
+                        Logout
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <Link to="/faculty-login"  className="nav-link" onClick={handleNavClick}>
                     < FaUserGraduate className="user-icon" />
                     <span>Departments</span>
                     <span className="link-underline"></span>
-                </Link>
+                  </Link>
+                )}
 
                 {isAuthenticated && user && (
                   <div className="nav-user-badge" style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
@@ -172,9 +215,23 @@ const NavigationBar = () => {
                 </Link>
               )}
             </div>
-            <Link to="/faculty-login" className="mobile-nav-button" onClick={handleNavClick}>
-                  <FaUserGraduate className="user-icon" /> Departments Login
-             </Link>
+            {department ? (
+              <>
+                <Link to="/printjob2" className="mobile-nav-link" onClick={handleNavClick}>
+                  Department Print
+                </Link>
+                <Link to="/tracking" className="mobile-nav-link" onClick={handleNavClick}>
+                  Track Request
+                </Link>
+                <button className="mobile-nav-button" onClick={handleDepartmentLogout}>
+                  <FaSignOutAlt className="user-icon" /> Logout ({department})
+                </button>
+              </>
+            ) : (
+              <Link to="/faculty-login" className="mobile-nav-button" onClick={handleNavClick}>
+                <FaUserGraduate className="user-icon" /> Departments Login
+              </Link>
+            )}
           </div>
         </div>
       </nav>

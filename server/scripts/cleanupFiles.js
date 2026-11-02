@@ -1,95 +1,63 @@
-const { Pool } = require('pg');
+require('dotenv').config();
 const fs = require('fs').promises;
 const path = require('path');
+const { pool } = require('../config/db');
+const { uploadsDir } = require('../config/localStorage');
 const { logger } = require('../utils/logger');
-require('dotenv').config();
-
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-});
 
 /**
- * Clean up files from completed or expired orders
- * @param {number} daysOld - Number of days to keep files for completed orders
+ * Delete uploaded files of finished print jobs. The print job records are kept
+ * for tracking and reports; only their file_path is cleared.
+ * @param {number} daysOld - Number of days to keep files after a job is finished
  */
 async function cleanupOldFiles(daysOld = 7) {
-  const client = await pool.connect();
-  
-  try {
-    await client.query('BEGIN');
-    
-    // Find orders that are either completed or expired
-    const result = await client.query(`
-      SELECT id, file_path, stored_filename, status, created_at, updated_at
-      FROM orders
-      WHERE 
-        (status = 'completed' AND updated_at < NOW() - INTERVAL '${daysOld} days')
-        OR 
-        (expires_at < NOW())
-    `);
+  const result = await pool.query(
+    `SELECT id, file_path
+     FROM print_jobs
+     WHERE status IN ('completed', 'delivered', 'cancelled')
+       AND file_path IS NOT NULL
+       AND updated_at < CURRENT_TIMESTAMP - make_interval(days => $1)`,
+    [daysOld]
+  );
 
-    const orders = result.rows;
-    logger.info(`Found ${orders.length} orders with files to clean up`);
+  logger.info(`Found ${result.rows.length} print jobs with files to clean up`);
 
-    let deletedFiles = 0;
-    let deletedOrders = 0;
-    let errors = 0;
+  let filesDeleted = 0;
+  let errors = 0;
 
-    for (const order of orders) {
+  for (const job of result.rows) {
+    try {
       try {
-        // Delete the file
-        if (order.file_path) {
-          try {
-            await fs.unlink(order.file_path);
-            logger.info(`Deleted file: ${order.file_path}`);
-            deletedFiles++;
-          } catch (error) {
-            if (error.code !== 'ENOENT') { // Ignore if file doesn't exist
-              throw error;
-            }
-            logger.warn(`File not found: ${order.file_path}`);
-          }
-        }
-
-        // Delete the order record
-        await client.query('DELETE FROM orders WHERE id = $1', [order.id]);
-        deletedOrders++;
-        
+        await fs.unlink(path.join(uploadsDir, path.basename(job.file_path)));
+        filesDeleted++;
       } catch (error) {
-        errors++;
-        logger.error(`Error cleaning up order ${order.id}:`, error);
-        // Continue with next order even if one fails
+        if (error.code !== 'ENOENT') { // Ignore if file doesn't exist
+          throw error;
+        }
+        logger.warn(`File not found: ${job.file_path}`);
       }
-    }
 
-    await client.query('COMMIT');
-    
-    logger.info(`Cleanup completed: ${deletedFiles} files deleted, ${deletedOrders} orders removed, ${errors} errors`);
-    
-    return {
-      totalProcessed: orders.length,
-      filesDeleted: deletedFiles,
-      ordersDeleted: deletedOrders,
-      errors
-    };
-    
-  } catch (error) {
-    await client.query('ROLLBACK');
-    logger.error('Error in cleanup transaction:', error);
-    throw error;
-  } finally {
-    client.release();
+      await pool.query('UPDATE print_jobs SET file_path = NULL WHERE id = $1', [job.id]);
+    } catch (error) {
+      errors++;
+      logger.error(`Error cleaning up print job ${job.id}:`, error);
+      // Continue with next job even if one fails
+    }
   }
+
+  logger.info(`Cleanup completed: ${filesDeleted} files deleted, ${errors} errors`);
+
+  return {
+    totalProcessed: result.rows.length,
+    filesDeleted,
+    errors
+  };
 }
 
 // Run cleanup if this script is executed directly
 if (require.main === module) {
   const days = process.argv[2] ? parseInt(process.argv[2], 10) : 7;
-  
+
   cleanupOldFiles(days)
     .then(() => {
       logger.info('File cleanup completed successfully');

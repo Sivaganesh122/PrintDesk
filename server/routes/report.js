@@ -1,9 +1,11 @@
 const express = require('express');
 const { pool } = require('../config/db');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { logger } = require('../utils/logger');
+const { authenticateAdmin } = require('../middleware/auth');
 
 const router = express.Router();
+
+router.use(authenticateAdmin);
 
 // Get sales report
 router.get('/sales', asyncHandler(async (req, res) => {

@@ -13,7 +13,6 @@ export const AdminAuthProvider = ({ children }) => {
     const token = localStorage.getItem('adminToken');
     if (token) {
       apiService.validateToken().then(res => {
-        console.log('DEBUG /api/auth/validate response:', res.data);
         if (res.data && res.data.user) setAdmin(res.data.user);
         else localStorage.removeItem('adminToken');
         setLoading(false);

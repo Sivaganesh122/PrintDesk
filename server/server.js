@@ -3,10 +3,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
-const path = require('path');
-const fs = require('fs').promises;
-const fsSync = require('fs');
 require('dotenv').config();
 
 // Import cleanup scheduler
@@ -22,15 +18,15 @@ const paymentRoutes = require('./routes/payment');
 const trackingRoutes = require('./routes/tracking');
 const adminRoutes = require('./routes/admin');
 const reportRoutes = require('./routes/report');
-const { uploadsDir } = require('./config/localStorage');
 const facultyRoutes = require('./routes/facultylogin');
 
 
 // Import middleware and config
 const { errorHandler } = require('./middleware/errorHandler');
+const { getJwtSecret } = require('./middleware/auth');
 const { logger } = require('./utils/logger');
 const { initializeDatabase } = require('./config/db');
-const { initializeStorage, serveFile } = require('./config/localStorage');
+const { initializeStorage } = require('./config/localStorage');
 
 // Security middleware
 app.use(helmet({
@@ -54,7 +50,8 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:3000',
-  'http://127.0.0.1:3000'
+  'http://127.0.0.1:3000',
+  ...(process.env.CLIENT_ORIGIN ? [process.env.CLIENT_ORIGIN] : [])
 ];
 
 app.use(cors({
@@ -80,42 +77,8 @@ app.use(compression());
 // Logging middleware
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
 
-// Static files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use('/reports', express.static(path.join(__dirname, 'reports')));
-
-// File serving route for uploaded files
-app.get('/api/files/:filename', async (req, res) => {
-  try {
-    const { filename } = req.params;
-    const filePath = path.join(uploadsDir, filename);
-    
-    // Check if file exists
-    try {
-      await fs.access(filePath);
-    } catch (error) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-    
-    // Get file stats
-    const stats = await fs.stat(filePath);
-    
-    // Set appropriate headers
-    res.set({
-      'Content-Type': 'application/octet-stream',
-      'Content-Length': stats.size,
-      'Last-Modified': stats.mtime.toUTCString(),
-      'Cache-Control': 'public, max-age=3600'
-    });
-    
-    // Send file
-    res.sendFile(filePath);
-  } catch (error) {
-    logger.error('Error serving file:', error);
-    res.status(500).json({ error: 'Error serving file' });
-  }
-});
+// Uploaded documents are not served statically. Admins fetch them through
+// /api/admin/print-jobs/:id/file, which checks the login.
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -145,23 +108,11 @@ app.use('*', (req, res) => {
 // Error handling middleware
 app.use(errorHandler);
 
-// Ensure uploads directory exists
-const ensureUploadsDir = async () => {
-  const uploadsDir = path.join(__dirname, 'uploads');
-  try {
-    await fs.access(uploadsDir);
-  } catch (error) {
-    await fs.mkdir(uploadsDir, { recursive: true });
-    logger.info('Created uploads directory');
-  }
-};
-
 // Initialize database and start server
 const startServer = async () => {
   try {
-    // Ensure uploads directory exists
-    await ensureUploadsDir();
-    
+    getJwtSecret();
+
     // Initialize database
     await initializeDatabase();
     logger.info('Database initialized');
@@ -200,7 +151,10 @@ const startServer = async () => {
   }
 };
 
-startServer();
+// The tests import the app without starting a server
+if (require.main === module) {
+  startServer();
+}
 
 // Graceful shutdown
 process.on('SIGTERM', () => {

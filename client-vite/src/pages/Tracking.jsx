@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { Container, Row, Col, Card, Form, Button, Badge } from 'react-bootstrap';
+import React, { useEffect, useState } from 'react';
+import { Container, Table, Badge } from 'react-bootstrap';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import { FaSearch, FaFileAlt, FaClock, FaCheckCircle, FaTimes } from 'react-icons/fa';
+import { FaFileAlt, FaClock, FaCheckCircle, FaTimes } from 'react-icons/fa';
+import { apiService } from '../services/api';
 
 function AnimatedBackground() {
   return (
@@ -101,89 +102,78 @@ const fadeItem = {
   show: { opacity: 1, y: 0, transition: { duration: 0.7 } }
 };
 
+const STATUS_BADGES = {
+  pending: { variant: 'warning', icon: FaClock, gradient: 'linear-gradient(90deg, #ffd972, #deae40)' },
+  processing: { variant: 'info', icon: FaClock, gradient: 'linear-gradient(90deg, #abcff2 82%, #7bb6e6 99%)' },
+  completed: { variant: 'success', icon: FaCheckCircle, gradient: 'linear-gradient(90deg, #9be17f, #67c25f)' },
+  delivered: { variant: 'success', icon: FaCheckCircle, gradient: 'linear-gradient(90deg, #9be17f, #67c25f)' },
+  cancelled: { variant: 'danger', icon: FaTimes, gradient: 'linear-gradient(90deg, #ff9884 10%, #f6583c 88%)' }
+};
+
+// The server returns the documents of an order next to each other. Jobs from before
+// orders could hold several documents have no order number, so each one stands alone.
+const groupByOrder = (documents) => {
+  const orders = [];
+  documents.forEach((document) => {
+    const lastOrder = orders[orders.length - 1];
+    if (document.orderNumber && lastOrder?.orderNumber === document.orderNumber) {
+      lastOrder.documents.push(document);
+    } else {
+      orders.push({
+        key: document.orderNumber || document.token,
+        orderNumber: document.orderNumber,
+        createdAt: document.createdAt,
+        documents: [document]
+      });
+    }
+  });
+  return orders;
+};
+
+const formatPrice = (price) => `₹${parseFloat(price).toFixed(2)}`;
+
 const Tracking = () => {
-  const [searchType, setSearchType] = useState('token');
-  const [searchValue, setSearchValue] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [ordersList, setOrdersList] = useState([]);
   const [error, setError] = useState('');
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    
-    if (!searchValue.trim()) {
-      setError('Please enter your roll number');
-      return;
-    }
+  useEffect(() => {
+    let ignore = false;
 
-    setLoading(true);
-    setError('');
-    setOrdersList([]);
-
-    try {
-      const endpoint = `http://localhost:5001/api/tracking/roll/${encodeURIComponent(searchValue)}`;
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include'
-      });
-      const responseText = await response.text();
-      let data;
+    const loadOrders = async () => {
       try {
-        data = responseText ? JSON.parse(responseText) : {};
-      } catch (jsonError) {
-        console.error('Failed to parse JSON:', { responseText, status: response.status });
-        throw new Error('Invalid response from server');
+        const { data } = await apiService.getMyOrders();
+        if (!ignore) {
+          setOrdersList(data.orders);
+        }
+      } catch (error) {
+        console.error('Error fetching orders:', error);
+        if (!ignore) {
+          setError(error.response?.data?.error || 'Could not load your orders. Please try again.');
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
       }
-      if (!response.ok) {
-        throw new Error(data.error || `Request failed with status ${response.status}`);
-      }
-      if (data.success && (data.orders || data.order)) {
-        const rawOrders = data.orders || [data.order];
-        const formattedOrders = rawOrders.map(ord => {
-          let createdAt = ord.createdAt || ord.created_at;
-          let estimatedCompletion = null;
-          if (createdAt && !isNaN(new Date(createdAt))) {
-            estimatedCompletion = new Date(new Date(createdAt).getTime() + 30 * 60 * 1000).toISOString();
-          }
-          return {
-            ...ord,
-            estimatedCompletion
-          };
-        });
-        setOrdersList(formattedOrders);
-      } else {
-        throw new Error('No orders found.');
-      }
-    } catch (error) {
-      console.error('Error fetching order:', error);
-      setError(error.message || 'Order not found. Please check your roll number.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getStatusBadge = (status) => {
-    const statusConfig = {
-      pending: { variant: 'warning', icon: FaClock, gradient: 'linear-gradient(90deg, #ffd972, #deae40)' },
-      processing: { variant: 'info', icon: FaClock, gradient: 'linear-gradient(90deg, #abcff2 82%, #7bb6e6 99%)' },
-      completed: { variant: 'success', icon: FaCheckCircle, gradient: 'linear-gradient(90deg, #9be17f, #67c25f)' },
-      cancelled: { variant: 'danger', icon: FaTimes, gradient: 'linear-gradient(90deg, #ff9884 10%, #f6583c 88%)' }
     };
 
-    const config = statusConfig[status] || statusConfig.pending;
+    loadOrders();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const getStatusBadge = (status) => {
+    const config = STATUS_BADGES[status] || STATUS_BADGES.pending;
     const Icon = config.icon;
 
     return (
-      <Badge 
-        bg={config.variant} 
-        className="fs-6 ms-2"
+      <Badge
+        bg={config.variant}
         style={{
           background: config.gradient,
-          padding: '6px 16px 6px 11px',
+          padding: '6px 12px 6px 9px',
           borderRadius: '7px'
         }}
       >
@@ -205,20 +195,20 @@ const Tracking = () => {
       paddingTop: '110px'
     }}>
       <Helmet>
-        <title>Track Order - Print Repository System</title>
+        <title>Track Order - PrintDesk</title>
       </Helmet>
-      
+
       <AnimatedBackground />
-      
+
       <Container className="tracking-wrapper" style={{
-        maxWidth: '650px',
+        maxWidth: '1140px',
         margin: '0 auto',
-        padding: '3.8rem 1rem 2.6rem 1rem',
+        padding: '2rem 1rem 2.6rem 1rem',
         position: 'relative',
         zIndex: 2
       }}>
         <motion.div
-          className="tracking-header text-center mb-5"
+          className="tracking-header text-center mb-4"
           initial="hidden"
           animate="show"
           variants={fadeItem}
@@ -233,297 +223,103 @@ const Tracking = () => {
             justifyContent: 'center',
             gap: '0.7rem'
           }}>
-            <FaSearch />
+            <FaFileAlt />
             Track Your Order
           </h1>
-          <motion.p
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.7 }}
-            style={{
-              color: 'var(--text-medium)',
-              fontSize: '1.07rem',
-              marginBottom: '2.1rem',
-              fontWeight: '500',
-              maxWidth: '450px',
-              marginLeft: 'auto',
-              marginRight: 'auto'
-            }}>
-            Enter your <b>Roll Number</b> to get real-time status updates.
-          </motion.p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.19 }}
-        >
-          <Card className="tracking-search-card mb-4" style={{
-            borderRadius: '15px',
-            boxShadow: 'var(--shadow)',
-            padding: '2.3rem 1.2rem 1.7rem 1.2rem',
-            background: 'var(--pure-white)'
+          <p style={{
+            color: 'var(--text-medium)',
+            fontSize: '1.07rem',
+            marginBottom: 0,
+            fontWeight: '500'
           }}>
-            <Card.Body>
-              <Form onSubmit={handleSearch}>
-                <Row className="search-row" style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '24px',
-                  alignItems: 'flex-end'
-                }}>
-                  <Col className="input-group" style={{
-                    flex: '1 1 150px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    minWidth: '120px'
-                  }}>
-                    <Form.Label style={{
-                      fontSize: '0.99rem',
-                      fontWeight: '500',
-                      color: 'var(--text-dark)',
-                      marginBottom: '0.45rem'
-                    }}>Roll Number</Form.Label>
-                    <Form.Control
-                      type="text"
-                      value={searchValue}
-                      onChange={(e) => setSearchValue(e.target.value)}
-                      placeholder={'Enter roll number'}
-                      required
-                      disabled={loading}
-                      style={{
-                        padding: '0.77rem 1rem',
-                        borderRadius: '8px',
-                        border: '1.4px solid #edd4a1',
-                        background: '#fcfaf8',
-                        fontSize: '1.03rem',
-                        width: '100%',
-                        outline: 'none',
-                        color: 'var(--text-dark)',
-                        fontWeight: '500',
-                        boxShadow: 'none',
-                        transition: 'border 0.29s'
-                      }}
-                    />
-                  </Col>
-                  <Col className="input-group search-btn-group" style={{
-                    minWidth: '105px',
-                    alignItems: 'flex-end'
-                  }}>
-                    <Form.Label>&nbsp;</Form.Label>
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      disabled={loading}
-                      style={{
-                        minWidth: '80px',
-                        minHeight: '40px',
-                        padding: '0.85rem 1.4rem',
-                        fontSize: '1.03rem',
-                        borderRadius: '8px',
-                        fontWeight: '600',
-                        transition: 'var(--transition)',
-                        boxShadow: 'var(--shadow)',
-                        fontFamily: "'Poppins', sans-serif",
-                        border: 'none',
-                        background: 'var(--primary-color)',
-                        color: '#fff'
-                      }}
-                    >
-                      {loading ? "Going..." : "Go"}
-                    </Button>
-                  </Col>
-                </Row>
-              </Form>
-            </Card.Body>
-          </Card>
+            All your orders, latest first.
+          </p>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: error || ordersList.length > 0 ? 1 : 0, y: error || ordersList.length > 0 ? 0 : 24 }}
-          transition={{ duration: 0.6, delay: 0.07 }}
-          className="tracking-result"
-          style={{ marginTop: '15px', minHeight: '30px' }}
-        >
-          {error && (
-            <motion.div 
-              className="result-alert error-alert"
-              initial={{ scale: 0.91, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.31 }}
-              style={{
-                marginBottom: '1.1rem',
-                padding: '1.13rem 1rem',
-                borderRadius: '9px',
-                fontWeight: '500',
-                background: '#fdecf0',
-                color: '#bf1b1b',
-                boxShadow: '0 2px 13px #ffcfbf44',
-                border: '1.2px solid #ffd2c3'
-              }}
-            >
-              {error}
-            </motion.div>
-          )}
+        {loading && (
+          <p className="text-center" style={{ color: 'var(--text-medium)', fontWeight: '500' }}>
+            Loading your orders...
+          </p>
+        )}
 
-          {ordersList.length > 0 && (
-            <div className="orders-container" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '0 5px',
-                color: 'var(--secondary-color)',
-                fontWeight: '600',
-                fontSize: '1.05rem'
-              }}>
-                <span>Found {ordersList.length} Order{ordersList.length > 1 ? 's' : ''}</span>
-                <span style={{ fontSize: '0.88rem', color: 'var(--text-medium)' }}>Sorted by newest first</span>
-              </div>
+        {error && (
+          <div
+            className="result-alert error-alert"
+            role="alert"
+            style={{
+              padding: '1.13rem 1rem',
+              borderRadius: '9px',
+              fontWeight: '500',
+              background: '#fdecf0',
+              color: '#bf1b1b',
+              border: '1.2px solid #ffd2c3'
+            }}
+          >
+            {error}
+          </div>
+        )}
 
-              {ordersList.map((order, index) => (
-                <motion.div 
-                  key={order.token || index}
-                  className="result-card"
-                  initial={{ scale: 0.95, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: "spring", stiffness: 70, duration: 0.42, delay: index * 0.06 }}
-                  style={{
-                    borderRadius: '16px',
-                    background: 'var(--pure-white)',
-                    boxShadow: 'var(--shadow-hover)',
-                    padding: '1.9rem 1.32rem',
-                    animation: 'fadeInPop 0.55s cubic-bezier(.19,1,.22,1)',
-                    border: index === 0 ? '2px solid #ecd4a3' : '1px solid #f0e6d6'
-                  }}
-                >
-                  <div className="result-header" style={{
-                    fontSize: '1.19rem',
-                    fontWeight: '600',
-                    marginBottom: '1.02rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    color: 'var(--primary-color)'
-                  }}>
-                    <span style={{ display: 'flex', alignItems: 'center' }}>
-                      <FaFileAlt style={{ marginRight: '10px', color: "#dab66a" }} /> 
-                      Order #{ordersList.length - index}
-                      {index === 0 && (
-                        <Badge bg="warning" text="dark" className="ms-2" style={{ fontSize: '0.75rem', padding: '4px 8px' }}>
-                          Latest
-                        </Badge>
-                      )}
-                    </span>
-                    {getStatusBadge(order.status)}
-                  </div>
-                  
-                  <div className="result-body" style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '18px',
-                    marginBottom: '1.1rem'
-                  }}>
-                    <div className="result-col" style={{
-                      flex: '1 1 190px',
-                      minWidth: '170px'
-                    }}>
-                      <h4 style={{
-                        fontSize: '1.01rem',
-                        color: 'var(--secondary-color)',
-                        fontWeight: '700',
-                        marginBottom: '0.36rem'
-                      }}>Order Information</h4>
-                      <p style={{
-                        fontSize: '1.04rem',
-                        fontWeight: '500',
-                        marginBottom: '0.23rem'
-                      }}>
-                        <strong>Token:</strong> <span>{order.token}</span>
-                      </p>
-                      <p style={{
-                        fontSize: '1.04rem',
-                        fontWeight: '500',
-                        marginBottom: '0.23rem'
-                      }}>
-                        <strong>Roll Number:</strong> <span>{order.rollNumber}</span>
-                      </p>
-                      {order.totalPages && (
-                        <p style={{
-                          fontSize: '1.04rem',
-                          fontWeight: '500',
-                          marginBottom: '0.23rem'
-                        }}>
-                          <strong>Total Pages:</strong> <span>{order.totalPages}</span>
-                        </p>
-                      )}
-                      {order.price && (
-                        <p style={{
-                          fontSize: '1.04rem',
-                          fontWeight: '500',
-                          marginBottom: '0.23rem'
-                        }}>
-                          <strong>Total Price:</strong> <span>₹{order.price}</span>
-                        </p>
-                      )}
-                      {order.paperSize && (
-                        <p style={{
-                          fontSize: '1.04rem',
-                          fontWeight: '500',
-                          marginBottom: '0.23rem'
-                        }}>
-                          <strong>Paper Size:</strong> <span>{order.paperSize}</span>
-                        </p>
-                      )}
-                      {order.binding && (
-                        <p style={{
-                          fontSize: '1.04rem',
-                          fontWeight: '500',
-                          marginBottom: '0.23rem'
-                        }}>
-                          <strong>Binding:</strong> <span>{order.binding}</span>
-                        </p>
-                      )}
-                      <p style={{
-                        fontSize: '1.04rem',
-                        fontWeight: '500',
-                        marginBottom: '0.23rem'
-                      }}>
-                        <strong>Created:</strong> {order.createdAt ? new Date(order.createdAt).toLocaleString() : 'N/A'}
-                      </p>
-                    </div>
-                  </div>
+        {!loading && !error && ordersList.length === 0 && (
+          <p className="text-center" style={{ color: 'var(--text-medium)', fontWeight: '500' }}>
+            You have no orders yet.
+          </p>
+        )}
 
-                  {(order.status === 'processing' || order.status === 'pending') && (
-                    <motion.div
-                      className="info-alert"
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.12, duration: 0.46 }}
-                      style={{
-                        background: '#f2f8fa',
-                        color: '#2e638d',
-                        padding: '12px 15px',
-                        borderRadius: '7px',
-                        fontWeight: '500',
-                        marginTop: '0.8rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        fontSize: '1.02em',
-                        boxShadow: '0 2px 10px #b7d0e529'
-                      }}
-                    >
-                      <FaClock style={{ marginRight: '8px' }} />
-                      Estimated completion:&nbsp;
-                      <b>{new Date(order.estimatedCompletion).toLocaleString()}</b>
-                    </motion.div>
-                  )}
-                </motion.div>
+        {ordersList.length > 0 && (
+          <div className="orders-table-card" style={{
+            borderRadius: '15px',
+            background: 'var(--pure-white)',
+            boxShadow: 'var(--shadow)',
+            padding: '0.75rem'
+          }}>
+            <Table responsive hover className="align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Document</th>
+                  <th>Pages</th>
+                  <th>Copies</th>
+                  <th>Print</th>
+                  <th>Paper</th>
+                  <th>Binding</th>
+                  <th className="text-end">Price</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              {groupByOrder(ordersList).map((order) => (
+                <tbody key={order.key} className="order-group">
+                  <tr className="order-group-header">
+                    <td colSpan={8} style={{ background: '#fbf3e2', overflowWrap: 'anywhere' }}>
+                      <strong>{order.orderNumber ? `Order ${order.orderNumber}` : 'Earlier order'}</strong>
+                      <span className="text-muted">
+                        {' · '}{new Date(order.createdAt).toLocaleString()}
+                        {' · '}{order.documents.length} {order.documents.length === 1 ? 'document' : 'documents'}
+                        {' · '}Total {formatPrice(order.documents.reduce((sum, document) => sum + parseFloat(document.price), 0))}
+                      </span>
+                    </td>
+                  </tr>
+                  {order.documents.map((document) => (
+                    <tr key={document.token} className="order-document">
+                      <td style={{ minWidth: 210, overflowWrap: 'anywhere' }}>
+                        <div style={{ fontWeight: '600' }}>{document.fileName || 'Print job'}</div>
+                        <div className="small text-muted">Token: {document.token}</div>
+                      </td>
+                      <td>{document.totalPages}</td>
+                      <td>{document.copies}</td>
+                      <td style={{ minWidth: 120 }}>
+                        {document.colorType}
+                        <div className="small text-muted">{document.doubleSided ? 'Double-sided' : 'Single-sided'}</div>
+                      </td>
+                      <td>{document.paperSize}</td>
+                      <td>{document.binding}</td>
+                      <td className="text-end" style={{ whiteSpace: 'nowrap' }}>{formatPrice(document.price)}</td>
+                      <td>{getStatusBadge(document.status)}</td>
+                    </tr>
+                  ))}
+                </tbody>
               ))}
-            </div>
-          )}
-        </motion.div>
+            </Table>
+          </div>
+        )}
       </Container>
 
       <style>{`

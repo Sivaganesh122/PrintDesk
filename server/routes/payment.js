@@ -2,9 +2,13 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { authenticateAdmin } = require('../middleware/auth');
 const { logger } = require('../utils/logger');
 
 const router = express.Router();
+
+// No payment gateway is connected in this version, so nothing here is open to students
+router.use(authenticateAdmin);
 
 // Process payment
 router.post('/process', 

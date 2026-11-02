@@ -1,146 +1,77 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
-const { v4: uuidv4 } = require('uuid');
-const { logger } = require('../utils/logger');
 
-// Configure multer for file upload
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${uuidv4()}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  }
-});
+const DEFAULT_ALLOWED_TYPES = 'pdf,doc,docx,jpg,jpeg,png';
+const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
+// Keep in sync with MAX_DOCUMENTS in client-vite/src/context/PrintJobContext.jsx
+const MAX_DOCUMENTS = 10;
 
-// File filter function
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = (process.env.ALLOWED_FILE_TYPES || 'pdf').split(',');
-  const fileExtension = path.extname(file.originalname).toLowerCase().substring(1);
-  
-  if (allowedTypes.includes(fileExtension)) {
-    cb(null, true);
-  } else {
-    cb(new Error(`File type ${fileExtension} is not allowed. Allowed types: ${allowedTypes.join(', ')}`), false);
-  }
+// Leading bytes of each allowed format, so a renamed file can't pass the extension check
+const FILE_SIGNATURES = {
+  pdf: ['25504446'],
+  png: ['89504e47'],
+  jpg: ['ffd8ff'],
+  jpeg: ['ffd8ff'],
+  docx: ['504b0304'],
+  doc: ['d0cf11e0']
 };
 
-// Configure multer upload
+const getFileExtension = (filename) => path.extname(filename).toLowerCase().substring(1);
+
+const getAllowedTypes = () => (process.env.ALLOWED_FILE_TYPES || DEFAULT_ALLOWED_TYPES)
+  .split(',')
+  .map((type) => type.trim().toLowerCase());
+
+const matchesSignature = (file) => {
+  const signatures = FILE_SIGNATURES[getFileExtension(file.originalname)];
+  if (!signatures) {
+    return false;
+  }
+  const header = file.buffer.subarray(0, 8).toString('hex');
+  return signatures.some((signature) => header.startsWith(signature));
+};
+
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+  storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: parseInt(process.env.MAX_FILE_SIZE, 10) || DEFAULT_MAX_FILE_SIZE
   },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = getAllowedTypes();
+    if (allowedTypes.includes(getFileExtension(file.originalname))) {
+      cb(null, true);
+    } else {
+      const error = new Error(`File type not allowed. Allowed types: ${allowedTypes.join(', ')}`);
+      error.status = 400;
+      cb(error);
+    }
+  }
 });
 
-// Middleware to handle file upload with metadata
-const uploadWithScan = (req, res, next) => {
-  upload.single('file')(req, res, (err) => {
+// Accepts the files in the "files" field and rejects anything that isn't what it claims to be
+const uploadDocuments = (req, res, next) => {
+  upload.array('files', MAX_DOCUMENTS)(req, res, (err) => {
     if (err) {
       if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ error: 'File too large. Maximum size is 10MB.' });
+        return res.status(400).json({ error: 'File is too large.' });
       }
-      return res.status(400).json({ error: err.message });
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({ error: `You can upload at most ${MAX_DOCUMENTS} documents at a time.` });
+      }
+      return res.status(err.status || 400).json({ error: err.message });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'At least one file is required' });
     }
 
-    // Attach file metadata to request object
-    req.fileInfo = {
-      originalName: req.file.originalname,
-      storedName: req.file.filename,
-      path: req.file.path,
-      size: req.file.size,
-      mimetype: req.file.mimetype,
-    };
+    const mismatch = req.files.find((file) => !matchesSignature(file));
+    if (mismatch) {
+      return res.status(400).json({ error: `The content of ${mismatch.originalname} does not match its file type.` });
+    }
 
     next();
   });
 };
 
-// Middleware to clean up uploaded files in case of errors
-const cleanupUploadedFile = (req, res, next) => {
-  if (req.file && req.file.path && fs.existsSync(req.file.path)) {
-    try {
-      fs.unlinkSync(req.file.path);
-      logger.info(`Cleaned up file: ${req.file.path}`);
-    } catch (error) {
-      logger.error(`Error cleaning up file ${req.file.path}:`, error);
-    }
-  }
-  if (typeof next === 'function') {
-    next();
-  }
-};
-
-// Virus scanning middleware (placeholder - implement as needed)
-const scanFile = async (filePath) => {
-  if (process.env.NODE_ENV === 'development') {
-    logger.warn('Virus scanning is disabled in development mode');
-    return true;
-  }
-  
-  // In production, implement actual virus scanning here
-  // For example, using clamscan or a cloud-based scanning service
-  return true;
-};
-
-// File upload middleware with scanning and cleanup
-const uploadWithScanAndCleanup = (req, res, next) => {
-  uploadWithScan(req, res, async (err) => {
-    if (err) {
-      return next(err);
-    }
-
-    try {
-      // In production, you would scan the file here
-      if (process.env.NODE_ENV !== 'development') {
-        await scanFile(req.file.path);
-      }
-      next();
-    } catch (error) {
-      // Clean up the file if scanning fails
-      cleanupUploadedFile(req, res, () => {
-        return res.status(400).json({ error: 'Virus scan failed' });
-      });
-    }
-  });
-};
-
-// Validate file size
-const validateFileSize = (fileSize) => {
-  const maxSize = process.env.MAX_FILE_SIZE ? parseInt(process.env.MAX_FILE_SIZE) : 10 * 1024 * 1024; // Default 10MB
-  return fileSize <= maxSize;
-};
-
-// Get file extension
-const getFileExtension = (filename) => {
-  return path.extname(filename).toLowerCase().substring(1);
-};
-
-// Check if file type is allowed
-const isAllowedFileType = (filename) => {
-  const allowedTypes = (process.env.ALLOWED_FILE_TYPES || 'pdf').split(',');
-  const extension = getFileExtension(filename);
-  return allowedTypes.includes(extension);
-};
-
-module.exports = {
-  upload,
-  uploadWithScan,
-  scanFile,
-  cleanupUploadedFile,
-  uploadWithScanAndCleanup,
-  validateFileSize,
-  getFileExtension,
-  isAllowedFileType,
-};
+module.exports = { uploadDocuments };
