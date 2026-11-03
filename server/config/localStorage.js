@@ -1,10 +1,10 @@
 const path = require('path');
+const crypto = require('crypto');
 const fs = require('fs').promises;
-const fsSync = require('fs');
 const { logger } = require('../utils/logger');
 
 // Storage configuration
-const uploadsDir = path.join(__dirname, '../uploads');
+const uploadsDir = path.resolve(__dirname, '..', process.env.UPLOAD_PATH || 'uploads');
 const reportsDir = path.join(__dirname, '../reports');
 const tempDir = path.join(__dirname, '../temp');
 
@@ -34,12 +34,9 @@ const handleFileUpload = async (file, destination = 'uploads') => {
   try {
     const uploadDir = destination === 'reports' ? reportsDir : uploadsDir;
     
-    // Generate unique filename
-    const timestamp = Date.now();
-    const randomString = Math.random().toString(36).substring(2, 15);
-    const extension = path.extname(file.originalname);
-    const filename = `${path.basename(file.originalname, extension)}_${timestamp}_${randomString}${extension}`;
-    
+    // Generate unique filename. The name the client sent is never used as part of a path.
+    const filename = `${Date.now()}-${crypto.randomUUID()}${path.extname(file.originalname).toLowerCase()}`;
+
     const filePath = path.join(uploadDir, filename);
     
     // Write file
@@ -99,37 +96,6 @@ const deleteFile = async (filename, directory = 'uploads') => {
   }
 };
 
-// Cleanup old files
-const cleanupOldFiles = async (maxAge = 24 * 60 * 60 * 1000) => { // 24 hours default
-  try {
-    const dirs = [uploadsDir, reportsDir, tempDir];
-    const cutoffTime = Date.now() - maxAge;
-    
-    for (const dir of dirs) {
-      try {
-        const files = await fs.readdir(dir);
-        
-        for (const file of files) {
-          const filePath = path.join(dir, file);
-          const stats = await fs.stat(filePath);
-          
-          if (stats.mtime.getTime() < cutoffTime) {
-            await fs.unlink(filePath);
-            logger.info('Cleaned up old file:', { file, directory: dir });
-          }
-        }
-      } catch (error) {
-        logger.error('Cleanup failed for directory:', { dir, error: error.message });
-      }
-    }
-    
-    logger.info('File cleanup completed');
-  } catch (error) {
-    logger.error('File cleanup failed:', error);
-    throw error;
-  }
-};
-
 // Get file info
 const getFileInfo = async (filename, directory = 'uploads') => {
   try {
@@ -159,6 +125,5 @@ module.exports = {
   handleFileUpload,
   serveFile,
   deleteFile,
-  cleanupOldFiles,
   getFileInfo
 }; 

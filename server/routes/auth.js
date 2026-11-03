@@ -1,24 +1,22 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { signToken, verifyRequestToken } = require('../middleware/auth');
+const { authLimiter } = require('../middleware/rateLimit');
 const { logger } = require('../utils/logger');
 
 const router = express.Router();
 
 // Admin login
-router.post('/login', 
+router.post('/login',
+  authLimiter,
   [
     body('username').notEmpty().withMessage('Username is required'),
     body('password').notEmpty().withMessage('Password is required')
   ],
   asyncHandler(async (req, res) => {
-    console.log('==== LOGIN DEBUG ====');
-    console.log('req.headers:', req.headers);
-    console.log('req.body:', req.body);
-
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: errors.array()[0].msg });
@@ -30,34 +28,24 @@ router.post('/login',
 
     try {
       const result = await client.query(
-        'SELECT id, username, password_hash FROM admin_users WHERE username = $1',
+        'SELECT id, username, password_hash FROM admin_users WHERE username = $1 AND is_active = true',
         [username]
       );
 
-      // ✅ Debug output
-      console.log('LOGIN DEBUG - DB result:', result.rows);
-
       if (result.rows.length === 0) {
-        console.log('LOGIN DEBUG - Username not found.');
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
       const admin = result.rows[0];
 
-      // ✅ Debug password values
-      console.log('LOGIN DEBUG - Plain password from client:', password);
-      console.log('LOGIN DEBUG - Stored password in DB:', admin.password_hash);
-
-      // ✅ Plain-text check (TEMPORARY)
-      if (password !== admin.password_hash) {
-        console.log('LOGIN DEBUG - Plaintext passwords do not match.');
+      const isMatch = await bcrypt.compare(password, admin.password_hash);
+      if (!isMatch) {
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
-      const token = jwt.sign(
-        { adminId: admin.id, username: admin.username },
-        process.env.JWT_SECRET || 'your-secret-key',
-        { expiresIn: '24h' }
+      const token = signToken(
+        { adminId: admin.id, username: admin.username, role: 'admin' },
+        process.env.JWT_EXPIRES_IN || '24h'
       );
 
       logger.info('Admin login successful:', { username: admin.username });
@@ -79,114 +67,23 @@ router.post('/login',
   })
 );
 
-// Admin registration (still hashes password)
-router.post('/register', 
-  [
-    body('name').notEmpty().withMessage('Name is required')
-  ],
-  asyncHandler(async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ error: errors.array()[0].msg });
-    }
-
-    let { uid, password, name } = req.body;
-
-    let username = uid;
-    if (!username) {
-      username = 'U' + Math.random().toString(36).substring(2, 10).toUpperCase();
-    }
-    if (!password) {
-      password = Math.random().toString(36).slice(-8);
-    }
-
-    const client = await pool.connect();
-
-    try {
-      const existingAdmin = await client.query(
-        'SELECT id FROM admin_users WHERE username = $1',
-        [username]
-      );
-
-      if (existingAdmin.rows.length > 0) {
-        return res.status(400).json({ error: 'Admin already exists with this username' });
-      }
-
-      const saltRounds = 10;
-      const passwordHash = await bcrypt.hash(password, saltRounds);
-
-      const result = await client.query(
-        'INSERT INTO admin_users (username, password_hash, name, email) VALUES ($1, $2, $3, $4) RETURNING id',
-        [username, passwordHash, name, `${username}@example.com`]
-      );
-
-      logger.info('Admin registered:', { username, name });
-
-      res.status(201).json({
-        success: true,
-        message: 'Admin registered successfully',
-        data: {
-          id: result.rows[0].id,
-          username,
-          name,
-          password
-        }
-      });
-    } finally {
-      client.release();
-    }
-  })
-);
-
-// Token verification
-router.get('/verify', asyncHandler(async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-
-  if (!token) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    const client = await pool.connect();
-    try {
-      const result = await client.query(
-        'SELECT id, email, name FROM admin_users WHERE id = $1',
-        [decoded.adminId]
-      );
-
-      if (result.rows.length === 0) {
-        return res.status(401).json({ error: 'Invalid token' });
-      }
-
-      res.json({
-        success: true,
-        data: {
-          admin: result.rows[0]
-        }
-      });
-    } finally {
-      client.release();
-    }
-  } catch (error) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-}));
-
 // Token validation endpoint for frontend
 router.get('/validate', asyncHandler(async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-
-  if (!token) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
-
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    const decoded = verifyRequestToken(req);
+
+    if (!decoded) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    if (decoded.role !== 'admin') {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
     const client = await pool.connect();
     try {
       const result = await client.query(
-        'SELECT id, username FROM admin_users WHERE id = $1',
+        'SELECT id, username FROM admin_users WHERE id = $1 AND is_active = true',
         [decoded.adminId]
       );
       if (result.rows.length === 0) {
@@ -211,6 +108,7 @@ router.get('/validate', asyncHandler(async (req, res) => {
 
 // Student / User Registration
 router.post('/student-register',
+  authLimiter,
   [
     body('name').trim().notEmpty().withMessage('Full name is required'),
     body('registration_number').trim().notEmpty().withMessage('Registration number is required'),
@@ -276,15 +174,14 @@ router.post('/student-register',
       const user = result.rows[0];
 
       // Sign JWT
-      const token = jwt.sign(
+      const token = signToken(
         {
           userId: user.id,
           registration_number: user.registration_number,
           name: user.name,
           role: 'student'
         },
-        process.env.JWT_SECRET || 'your-secret-key',
-        { expiresIn: '7d' }
+        '7d'
       );
 
       logger.info('Student registered successfully:', {
@@ -306,6 +203,7 @@ router.post('/student-register',
 
 // Student / User Login with Registration Number & Password
 router.post('/student-login',
+  authLimiter,
   [
     body('registration_number').trim().notEmpty().withMessage('Registration number is required'),
     body('password').notEmpty().withMessage('Password is required')
@@ -347,15 +245,14 @@ router.post('/student-login',
       }
 
       // Sign JWT
-      const token = jwt.sign(
+      const token = signToken(
         {
           userId: user.id,
           registration_number: user.registration_number,
           name: user.name,
           role: 'student'
         },
-        process.env.JWT_SECRET || 'your-secret-key',
-        { expiresIn: '7d' }
+        '7d'
       );
 
       logger.info('Student logged in successfully:', {
@@ -383,14 +280,13 @@ router.post('/student-login',
 
 // Student Session Verification (Me)
 router.get('/student-me', asyncHandler(async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) {
-    return res.status(401).json({ success: false, error: 'No token provided' });
-  }
-
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    if (!decoded.userId) {
+    const decoded = verifyRequestToken(req);
+    if (!decoded) {
+      return res.status(401).json({ success: false, error: 'No token provided' });
+    }
+
+    if (decoded.role !== 'student' || !decoded.userId) {
       return res.status(401).json({ success: false, error: 'Invalid token payload' });
     }
 

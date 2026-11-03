@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
 const { logger } = require('../utils/logger');
 
 const pool = new Pool({
@@ -21,6 +22,20 @@ pool.on('error', (err) => {
   logger.error('Unexpected error on idle client', err);
   process.exit(-1);
 });
+
+// Replaces any password still stored as plain text with its bcrypt hash, so existing logins keep working
+const hashPlaintextPasswords = async (client, table, column) => {
+  const { rows } = await client.query(`SELECT id, ${column} AS value FROM ${table} WHERE ${column} NOT LIKE '$2%'`);
+
+  for (const row of rows) {
+    const hash = await bcrypt.hash(row.value, 10);
+    await client.query(`UPDATE ${table} SET ${column} = $1 WHERE id = $2`, [hash, row.id]);
+  }
+
+  if (rows.length > 0) {
+    logger.info(`Hashed ${rows.length} plain text password(s) in ${table}`);
+  }
+};
 
 // Initialize database tables
 const initializeDatabase = async () => {
@@ -49,6 +64,16 @@ const initializeDatabase = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    // Add the print options that older databases don't have columns for
+    await client.query(`
+      ALTER TABLE print_jobs
+        ADD COLUMN IF NOT EXISTS copies INTEGER DEFAULT 1,
+        ADD COLUMN IF NOT EXISTS double_sided BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS selected_pages INTEGER[],
+        ADD COLUMN IF NOT EXISTS original_filename VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS order_number VARCHAR(255)
     `);
 
     // Create payments table
@@ -138,6 +163,15 @@ const initializeDatabase = async () => {
       )
     `);
 
+    // Create faculty table for department logins
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS faculty (
+        id SERIAL PRIMARY KEY,
+        department_name VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL
+      )
+    `);
+
     // Create system_settings table for payment and other configurations
     await client.query(`
       CREATE TABLE IF NOT EXISTS system_settings (
@@ -177,16 +211,29 @@ const initializeDatabase = async () => {
       ON CONFLICT (setting_key) DO NOTHING
     `);
 
-    // Insert default admin user if not exists
-    await client.query(`
-      INSERT INTO admin_users (username, password_hash, email, role, is_active)
-      VALUES ('admin', 'admin123', 'admin@printdesk.edu', 'admin', true)
-      ON CONFLICT (username) DO NOTHING
-    `);
+    await hashPlaintextPasswords(client, 'admin_users', 'password_hash');
+    await hashPlaintextPasswords(client, 'faculty', 'password');
+
+    // Create the first admin from the environment. There is deliberately no default password.
+    const adminCount = await client.query('SELECT COUNT(*) FROM admin_users');
+    if (parseInt(adminCount.rows[0].count, 10) === 0) {
+      if (process.env.ADMIN_INITIAL_PASSWORD) {
+        const passwordHash = await bcrypt.hash(process.env.ADMIN_INITIAL_PASSWORD, 10);
+        await client.query(
+          `INSERT INTO admin_users (username, password_hash, email, role, is_active)
+           VALUES ('admin', $1, 'admin@printdesk.edu', 'admin', true)`,
+          [passwordHash]
+        );
+        logger.info('Created the first admin user');
+      } else {
+        logger.warn('No admin user exists. Set ADMIN_INITIAL_PASSWORD or run scripts/setPassword.js');
+      }
+    }
 
     // Create indexes for better performance
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_print_jobs_tracking_number ON print_jobs(tracking_number);
+      CREATE INDEX IF NOT EXISTS idx_print_jobs_order_number ON print_jobs(order_number);
       CREATE INDEX IF NOT EXISTS idx_print_jobs_status ON print_jobs(status);
       CREATE INDEX IF NOT EXISTS idx_print_jobs_created_at ON print_jobs(created_at);
       CREATE INDEX IF NOT EXISTS idx_payments_print_job_id ON payments(print_job_id);

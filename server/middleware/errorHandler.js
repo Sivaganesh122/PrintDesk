@@ -36,9 +36,10 @@ const errorHandler = (err, req, res, next) => {
   } else if (err.code === '23503') { // PostgreSQL foreign key constraint violation
     error.message = 'Related resource not found';
     error.status = 400;
-  } else if (err.message) {
+  } else if (err.status && err.status < 500) {
+    // Only errors raised deliberately with a client status are safe to show
     error.message = err.message;
-    error.status = err.status || 500;
+    error.status = err.status;
   }
 
   // Send error response

@@ -13,7 +13,6 @@ import AdminLogin from './pages/AdminLogin.jsx';
 import NotFound from './pages/NotFound.jsx';
 import Faculty from './pages/Facultylogin.jsx';
 import ThankYou2 from './pages/ThankYou2.jsx';
-import PrintJob2 from './pages/Printjob2.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 
 // Import contexts
@@ -30,6 +29,20 @@ function App() {
   );
 }
 
+// The department login is in localStorage, not React state, so it is read when the route renders
+function RequireDepartment({ children }) {
+  return localStorage.getItem('faculty_department') ? children : <Navigate to="/faculty-login" replace />;
+}
+
+function RequireStudentOrDepartment({ children }) {
+  const { user, loading } = useAuth();
+
+  if (user || localStorage.getItem('faculty_department')) {
+    return children;
+  }
+  return loading ? null : <Navigate to="/" replace />;
+}
+
 function AppContent() {
   const { admin, loading } = useAdminAuth();
   const { user, loading: userLoading } = useAuth();
@@ -37,7 +50,7 @@ function AppContent() {
   return (
     <div className="App">
       <Helmet>
-        <title>Print Repository System</title>
+        <title>PrintDesk</title>
         <meta name="description" content="Efficient printing management for educational institutions" />
       </Helmet>
       
@@ -55,7 +68,7 @@ function AppContent() {
           <Route path="/thank-you" element={<ThankYou />} />
           <Route 
             path="/tracking" 
-            element={user ? <Tracking /> : (userLoading ? null : <Navigate to="/" replace />)} 
+            element={<RequireStudentOrDepartment><Tracking /></RequireStudentOrDepartment>}
           />
           <Route 
             path="/admin-login" 
@@ -99,7 +112,10 @@ function AppContent() {
           <Route path="*" element={<NotFound />} />
           <Route path="/thank-you2" element={<ThankYou2 />} />
           
-          <Route path="/printjob2" element={<PrintJob2 />} />
+          <Route
+            path="/printjob2"
+            element={<RequireDepartment><PrintJob isDepartment /></RequireDepartment>}
+          />
         </Routes>
       </main>
     </div>

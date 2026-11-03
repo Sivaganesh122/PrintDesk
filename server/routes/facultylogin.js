@@ -1,10 +1,13 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const router = express.Router();
 const { pool } = require('../config/db');
+const { signToken } = require('../middleware/auth');
+const { authLimiter } = require('../middleware/rateLimit');
 const { logger } = require('../utils/logger');
 
 // POST /api/faculty-login
-router.post('/faculty-login', async (req, res) => {
+router.post('/faculty-login', authLimiter, async (req, res) => {
   const { department_name, password } = req.body;
 
   if (!department_name || !password) {
@@ -13,17 +16,28 @@ router.post('/faculty-login', async (req, res) => {
 
   try {
     const result = await pool.query(
-      'SELECT * FROM Faculty WHERE department_name = $1 AND password = $2',
-      [department_name, password]
+      'SELECT id, department_name, password FROM faculty WHERE department_name = $1',
+      [department_name]
     );
 
-    if (result.rows.length === 0) {
+    const faculty = result.rows[0];
+    if (!faculty || !(await bcrypt.compare(password, faculty.password))) {
       return res.status(401).json({ success: false, message: 'Invalid department name or password' });
     }
 
-    res.status(200).json({ success: true, message: 'Login successful', faculty: result.rows[0] });
+    const token = signToken(
+      { facultyId: faculty.id, department_name: faculty.department_name, role: 'department' },
+      process.env.JWT_EXPIRES_IN || '24h'
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      token,
+      faculty: { id: faculty.id, department_name: faculty.department_name }
+    });
   } catch (err) {
-    console.error('Faculty login error:', err);
+    logger.error('Faculty login error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });

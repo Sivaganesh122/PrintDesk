@@ -12,6 +12,7 @@ import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
 import { usePrintJob } from "../context/PrintJobContext";
 import { useAuth } from "../context/AuthContext";
+import { apiService } from "../services/api";
 import { toast } from "react-toastify";
 import {
   FaPrint,
@@ -19,6 +20,7 @@ import {
   FaCheck,
   FaChevronRight,
   FaChevronLeft,
+  FaTimes,
 } from "react-icons/fa";
 import { convertDocxToPreview, convertDocToPreview } from "../utils/documentConverter";
 import niaLogo from "./nialogo.jpeg";
@@ -127,95 +129,125 @@ function AnimatedBackground() {
   );
 }
 
-const PrintJob = () => {
+// PDF.js is large, so it is only downloaded when someone adds a PDF
+const loadPdfJs = async () => {
+  const [pdfjsLib, worker] = await Promise.all([
+    import("pdfjs-dist"),
+    import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
+  ]);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = worker.default;
+  return pdfjsLib;
+};
+
+const PrintJob = ({ isDepartment = false }) => {
   const navigate = useNavigate();
   const {
-    uploadedFile,
-    selectedPages,
-    setSelectedPages,
-    printOptions,
-    pricing,
-    handleFileUpload,
-    updatePrintOptions,
-    togglePageSelection,
-    selectAllPages,
-    clearAllSelections,
+    documents,
+    PRICING,
+    MAX_DOCUMENTS,
+    calculateDocumentPrice,
+    validateFile,
+    addDocument,
+    removeDocument,
+    updateDocument,
+    clearDocuments,
   } = usePrintJob();
 
   const [step, setStep] = useState(0);
   const stepCount = 3;
 
-  const [rollNumber, setRollNumber] = useState("");
   const { user } = useAuth();
-
-  useEffect(() => {
-    if (user?.registration_number && !rollNumber) {
-      setRollNumber(user.registration_number);
-    }
-  }, [user]);
+  // The server stores the job under the logged in identity, so this is display only
+  const rollNumber = (isDepartment ? localStorage.getItem("faculty_department") : user?.registration_number) || "";
   const [loading, setLoading] = useState(false);
-  const [previewPages, setPreviewPages] = useState([]);
-  const [showPreview, setShowPreview] = useState(false);
-  const [paperSize, setPaperSize] = useState("A4");
-  const [bindingType, setBindingType] = useState("None");
+  const [activeDocumentId, setActiveDocumentId] = useState(null);
 
+  // Steps 2 and 3 edit one document at a time, chosen with the document selector
+  const activeDocument = documents.find((document) => document.id === activeDocumentId) || documents[0];
+  const previewPages = activeDocument?.previewPages || [];
+  const selectedPages = activeDocument?.selectedPages || [];
+  const printOptions = activeDocument?.printOptions || { color: false, doubleSided: false, copies: 1 };
+  const paperSize = activeDocument?.paperSize || "A4";
+  const bindingType = activeDocument?.bindingType || "None";
+  const showPreview = previewPages.length > 0;
 
+  const updateActiveDocument = (changes) => updateDocument(activeDocument.id, changes);
+  const updatePrintOptions = (changes) => updateActiveDocument({ printOptions: { ...printOptions, ...changes } });
+  const setPaperSize = (value) => updateActiveDocument({ paperSize: value });
+  const setBindingType = (value) => updateActiveDocument({ bindingType: value });
+  const selectAllPages = () => updateActiveDocument({ selectedPages: previewPages.map((page) => page.id) });
+  const clearAllSelections = () => updateActiveDocument({ selectedPages: [] });
+  const togglePageSelection = (pageId) => updateActiveDocument({
+    selectedPages: selectedPages.includes(pageId)
+      ? selectedPages.filter((page) => page !== pageId)
+      : [...selectedPages, pageId].sort((a, b) => a - b),
+  });
+
+  const [pageRange, setPageRange] = useState({ from: "", to: "" });
+  const [pageRangeError, setPageRangeError] = useState("");
+
+  // A range typed for one document doesn't carry over to the next
+  useEffect(() => {
+    setPageRange({ from: "", to: "" });
+    setPageRangeError("");
+  }, [activeDocument?.id]);
+
+  // Replaces the selection. Single pages can still be clicked to add or remove them afterwards.
+  const applyPageRange = () => {
+    const from = Number(pageRange.from);
+    const to = Number(pageRange.to);
+    const lastPage = previewPages.length;
+
+    if (pageRange.from === "" || pageRange.to === "") {
+      setPageRangeError("Enter both a From and a To page.");
+    } else if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to > lastPage) {
+      setPageRangeError(`Enter page numbers from 1 to ${lastPage}.`);
+    } else if (from > to) {
+      setPageRangeError("The From page can't be after the To page.");
+    } else {
+      setPageRangeError("");
+      updateActiveDocument({
+        selectedPages: previewPages
+          .filter((page) => page.pageNumber >= from && page.pageNumber <= to)
+          .map((page) => page.id),
+      });
+    }
+  };
+
+  const handlePageRangeKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      applyPageRange();
+    }
+  };
+
+  const pricing = calculateDocumentPrice({ selectedPages, printOptions, bindingType });
+  const bindingCost = pricing.bindingCost;
+  const estimatedTotal = pricing.total;
+  const orderTotal = documents.reduce((sum, document) => sum + calculateDocumentPrice(document).total, 0);
+  const documentsWithoutPages = documents.filter((document) => document.selectedPages.length === 0);
+  const orderIsReady = documents.length > 0 && documentsWithoutPages.length === 0 && !!rollNumber.trim();
 
   const stepRef = useRef();
-  const fileInputRef = useRef(null);
 
-  useEffect(() => {
-    if (uploadedFile && fileInputRef.current && typeof DataTransfer !== 'undefined') {
-      try {
-        const dt = new DataTransfer();
-        dt.items.add(uploadedFile);
-        fileInputRef.current.files = dt.files;
-      } catch (err) {
-        console.error("Could not sync file input with uploadedFile:", err);
-      }
-    }
-  }, [uploadedFile, step]);
+  // Documents are not kept after leaving this page or submitting the order
+  useEffect(() => clearDocuments, []);
 
-  useEffect(() => {
-    const loadPdfJs = async () => {
-      try {
-        // Load PDF.js from CDN to avoid import.meta issues
-        if (!window.pdfjsLib) {
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-          script.onload = () => {
-            // Set worker source
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          };
-          document.head.appendChild(script);
-        }
-      } catch (error) {
-        console.error('Failed to load PDF.js:', error);
-      }
-    };
-    loadPdfJs();
-  }, []);
+  const placeholderPage = (text, type) => ({
+    id: 0,
+    thumbnail: `https://via.placeholder.com/150x200/6c757d/ffffff?text=${text}`,
+    pageNumber: 1,
+    selected: false,
+    type,
+  });
 
   const generatePdfPreview = async (file) => {
     try {
-      // Wait for PDF.js to load if not already loaded
-      if (!window.pdfjsLib) {
-        await new Promise((resolve) => {
-          const checkPdfJs = () => {
-            if (window.pdfjsLib) {
-              resolve();
-            } else {
-              setTimeout(checkPdfJs, 100);
-            }
-          };
-          checkPdfJs();
-        });
-      }
-      
+      const pdfjsLib = await loadPdfJs();
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       const pages = [];
-      
+
       for (let i = 1; i <= pdf.numPages; i++) {
         try {
           const page = await pdf.getPage(i);
@@ -243,156 +275,77 @@ const PrintJob = () => {
           });
         }
       }
-      
-      if (pages.length > 0) {
-        setPreviewPages(pages);
-        setShowPreview(true);
-        selectAllPages(pages.length);
-        return true;
-      } else {
+
+      if (pages.length === 0) {
         throw new Error('No pages could be rendered');
       }
+      return pages;
     } catch (error) {
+      // Without the real page count the price and page selection would be wrong, so the file isn't added
       console.error('PDF preview error:', error);
-      toast.error("Failed to generate PDF preview. Using placeholder.");
-      
-      // Create a placeholder preview
-      setPreviewPages([{
-        id: 0,
-        thumbnail: `https://via.placeholder.com/150x200/6c757d/ffffff?text=PDF+File`,
-        pageNumber: 1,
-        selected: false,
-        type: "pdf",
-      }]);
-      setShowPreview(true);
-      selectAllPages(1);
-      return true;
+      toast.error(`${file.name}: this PDF could not be read, so it was not added. If it has a password, remove it and try again.`);
+      return [];
     }
   };
 
-  const generateImagePreview = async (file) => {
-    const url = URL.createObjectURL(file);
-    setPreviewPages([
-      {
-        id: 0,
-        thumbnail: url,
-        pageNumber: 1,
-        selected: false,
-        type: "image",
-      },
-    ]);
-    setShowPreview(true);
-    selectAllPages(1);
+  const generateDocumentPreview = async (file, extension) => {
+    const result = extension === "docx" ? await convertDocxToPreview(file) : await convertDocToPreview(file);
+    if (!result.success) {
+      toast.error(result.error);
+      return [];
+    }
+    return result.pages;
   };
 
-  const generateDocumentPreview = async (file) => {
-    const ext = file.name.split(".").pop().toLowerCase();
-    if (ext === "docx") {
-      const result = await convertDocxToPreview(file);
-      if (result.success) {
-        setPreviewPages(result.pages);
-        setShowPreview(true);
-        selectAllPages(result.pages.length);
-      } else toast.error(result.error);
-    } else if (ext === "doc") {
-      const result = await convertDocToPreview(file);
-      if (result.success) {
-        setPreviewPages(result.pages);
-        setShowPreview(true);
-        selectAllPages(result.pages.length);
-      } else toast.error(result.error);
-    } else {
-      setPreviewPages([
-        {
-          id: 0,
-          thumbnail: `https://via.placeholder.com/150x200/6c757d/ffffff?text=Doc`,
-          pageNumber: 1,
-          selected: false,
-          type: "document",
-        },
-      ]);
-      setShowPreview(true);
+  const generatePreviewPages = async (file) => {
+    const extension = file.name.split('.').pop().toLowerCase();
+    try {
+      if (extension === 'pdf') {
+        return await generatePdfPreview(file);
+      }
+      if (['docx', 'doc'].includes(extension)) {
+        return await generateDocumentPreview(file, extension);
+      }
+      return [{ ...placeholderPage("Image", "image"), thumbnail: URL.createObjectURL(file) }];
+    } catch (previewError) {
+      console.error('Preview generation error:', previewError);
+      toast.error(`${file.name}: this file could not be read, so it was not added.`);
+      return [];
     }
   };
 
   const handleFileChange = async (e) => {
-    const file = e.target.files[0];
-    if (!file) {
-      toast.error('No file selected');
-      return;
-    }
+    const files = Array.from(e.target.files);
+    // Clear the input so the same file can be chosen again, such as to print it with other settings
+    e.target.value = '';
 
+    setLoading(true);
     try {
-      setLoading(true);
-      
-      // Reset preview state
-      setShowPreview(false);
-      setPreviewPages([]);
-      setSelectedPages([]);
-      
-      console.log('Selected file:', file.name, 'Type:', file.type, 'Size:', file.size);
-      
-      // Upload the file
-      const uploadSuccess = await handleFileUpload(file);
-      
-      if (!uploadSuccess) {
-        toast.error('Failed to upload file. Please try again.');
-        return;
-      }
-      
-      // Generate preview based on file type
-      const fileExtension = file.name.split('.').pop().toLowerCase();
-      let previewGenerated = false;
-      
-      try {
-        if (fileExtension === 'pdf') {
-          await generatePdfPreview(file);
-        } else if (['jpg', 'jpeg', 'png', 'gif'].includes(fileExtension)) {
-          await generateImagePreview(file);
-        } else if (['docx', 'doc'].includes(fileExtension)) {
-          await generateDocumentPreview(file);
-        } else {
-          // For unsupported file types, create a generic preview
-          setPreviewPages([{
-            id: 0,
-            thumbnail: `https://via.placeholder.com/150x200/6c757d/ffffff?text=${fileExtension.toUpperCase()}`,
-            pageNumber: 1,
-            selected: false,
-            type: "document",
-          }]);
-          setShowPreview(true);
+      let documentCount = documents.length;
+      for (const file of files) {
+        if (documentCount >= MAX_DOCUMENTS) {
+          toast.error(`You can upload at most ${MAX_DOCUMENTS} documents at a time.`);
+          break;
         }
-        
-        toast.success('File loaded successfully!');
-      } catch (previewError) {
-        console.error('Preview generation error:', previewError);
-        // Create a fallback preview
-        setPreviewPages([{
-          id: 0,
-          thumbnail: `https://via.placeholder.com/150x200/6c757d/ffffff?text=File+Preview`,
-          pageNumber: 1,
-          selected: false,
-          type: "document",
-        }]);
-        setShowPreview(true);
-        toast.success('File loaded successfully!');
+        if (!validateFile(file)) {
+          continue;
+        }
+        const pages = await generatePreviewPages(file);
+        if (pages.length > 0) {
+          addDocument(file, pages);
+          documentCount++;
+        }
       }
-      
-    } catch (error) {
-      console.error('Error processing file:', error);
-      toast.error(`Failed to process file: ${error.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
-      // Note: Don't reset the input value here as it prevents re-uploading the same file
-      // The value is reset after successful upload in the handleFileUpload function
     }
   };
 
   // ---- VALIDATION LOGIC for step navigation & submission ----
   const canNext = () => {
-    if (step === 0) return !!uploadedFile && !!rollNumber.trim();
-    if (step === 1) return selectedPages.length > 0;
-    if (step === 2) return !!printOptions.copies && printOptions.copies > 0; 
+    if (loading) return false;
+    if (step === 0) return documents.length > 0 && !!rollNumber.trim();
+    if (step === 1) return documentsWithoutPages.length === 0;
     return true;
   };
 
@@ -402,6 +355,8 @@ const PrintJob = () => {
       e.stopPropagation();
     }
     if (canNext()) {
+      // Each step starts on the first document
+      setActiveDocumentId(documents[0].id);
       setStep((prev) => Math.min(stepCount - 1, prev + 1));
     }
   };
@@ -411,75 +366,65 @@ const PrintJob = () => {
       e.preventDefault();
       e.stopPropagation();
     }
-    
+
     // Only allow submission on the final step (Step 3)
     if (step !== stepCount - 1) {
       return;
     }
-    
-    if (
-      !uploadedFile ||
-      !rollNumber.trim() ||
-      selectedPages.length === 0 ||
-      !printOptions.copies ||
-      printOptions.copies < 1
-    ) {
+
+    if (!orderIsReady) {
       toast.error("Please complete all fields");
       return;
     }
     setLoading(true);
     try {
-      // Create the print job in the backend
+      // The files and the specifications are matched by their position in these two lists
       const formData = new FormData();
-      
-      // Add the uploaded file to the form data
-      if (uploadedFile) {
-        formData.append('file', uploadedFile);
-      }
-      
-      // Add the print job data
-      formData.append('rollNumber', rollNumber);
-      formData.append('totalPages', selectedPages.length);
-      formData.append('totalPrice', pricing.total);
-      formData.append('colorPages', printOptions.color ? selectedPages.length : 0);
-      formData.append('bwPages', printOptions.color ? 0 : selectedPages.length);
-      formData.append("paperSize", paperSize);
-      formData.append("bindingType", bindingType);
+      documents.forEach((document) => formData.append('files', document.file));
+      formData.append('documents', JSON.stringify(documents.map((document) => ({
+        // Page numbers are sent counting from 1
+        selectedPages: document.selectedPages.map((page) => page + 1),
+        color: document.printOptions.color,
+        doubleSided: document.printOptions.doubleSided,
+        copies: document.printOptions.copies,
+        paperSize: document.paperSize,
+        bindingType: document.bindingType,
+      }))));
 
-      formData.append('printOptions', JSON.stringify(printOptions));
-      
-      const response = await fetch('http://localhost:5001/api/print-job/create', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create print job');
-      }
-      
-      const result = await response.json();
-      
-      const orderData = {
-        rollNumber,
-        totalPages: selectedPages.length,
-        colorPages: printOptions.color ? selectedPages.length : 0,
-        bwPages: printOptions.color ? 0 : selectedPages.length,
-        price: pricing.total,
-        printOptions,
-        token: result.data.trackingNumber,
-        trackingNumber: result.data.trackingNumber,
-        jobId: result.data.id,
-      };
-      
-      navigate("/thank-you", { state: { orderData } });
+      const authToken = localStorage.getItem(isDepartment ? 'faculty_token' : 'studentToken');
+      const { data: result } = await apiService.createPrintJob(formData, authToken);
+
+      navigate(isDepartment ? "/thank-you2" : "/thank-you", { state: { orderData: result.data } });
     } catch (error) {
       console.error('Error creating print job:', error);
-      toast.error(error.message || "Failed to create print job");
+      toast.error(error.response?.data?.error || error.message || "Failed to create print job");
     } finally {
       setLoading(false);
     }
   };
+
+  const documentSelector = documents.length > 1 && (
+    <div className="d-flex flex-wrap mb-3" style={{ gap: "0.4rem" }} role="group" aria-label="Choose a document">
+      {documents.map((document, index) => {
+        const isActive = document.id === activeDocument?.id;
+        const needsPages = document.selectedPages.length === 0;
+        return (
+          <Button
+            key={document.id}
+            type="button"
+            size="sm"
+            variant={isActive ? "primary" : needsPages ? "outline-danger" : "outline-secondary"}
+            aria-pressed={isActive}
+            title={document.file.name}
+            onClick={() => setActiveDocumentId(document.id)}
+            style={{ borderRadius: 10, maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          >
+            {index + 1}. {document.file.name}
+          </Button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <>
@@ -505,7 +450,7 @@ const PrintJob = () => {
         }}
       >
         <Row
-          className="flex-lg-nowrap w-100"
+          className="flex-lg-nowrap w-100 justify-content-center"
           style={{
             gap: "2.5vw",
             width: "100%",
@@ -606,15 +551,13 @@ const PrintJob = () => {
                       </div>
                       <Form.Group className="mb-4">
                         <Form.Label className="fw-semibold">
-                          Roll Number
+                          {isDepartment ? "Department" : "Roll Number"}
                         </Form.Label>
                         <Form.Control
-                          placeholder="E.g. 727624BCS043"
                           value={rollNumber}
-                          onChange={(e) => setRollNumber(e.target.value)}
+                          readOnly
                           required
                           spellCheck="false"
-                          autoFocus
                           style={{
                             borderRadius: 14,
                             border: "1.5px solid #d2ba88bb",
@@ -627,26 +570,54 @@ const PrintJob = () => {
 
                       <Form.Group>
                         <Form.Label className="fw-semibold">
-                          Select File (.pdf, .docx, .jpg, .png)
+                          Select Files (.pdf, .docx, .jpg, .png)
                         </Form.Label>
                         <Form.Control
-                          ref={fileInputRef}
                           type="file"
+                          multiple
                           accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                           onChange={handleFileChange}
+                          disabled={loading || documents.length >= MAX_DOCUMENTS}
                           style={{
                             borderRadius: 13,
                             background: "#f7ecd6",
                           }}
                         />
                         <Form.Text className="text-muted">
-                          Supported: PDF, DOCX, JPG, PNG
+                          Supported: PDF, DOCX, JPG, PNG. Up to {MAX_DOCUMENTS} documents. You can choose separate settings for each one in the next steps.
                         </Form.Text>
                       </Form.Group>
-                      {uploadedFile && (
-                        <Alert variant="success" className="mt-3 mb-1">
-                          Uploaded: <b>{uploadedFile.name}</b>
+                      {loading && (
+                        <Alert variant="info" className="mt-3 mb-1">
+                          Reading your documents...
                         </Alert>
+                      )}
+                      {documents.length > 0 && (
+                        <div className="mt-3">
+                          <div className="fw-semibold mb-2">
+                            {documents.length} {documents.length === 1 ? "document" : "documents"} added
+                          </div>
+                          {documents.map((document, index) => (
+                            <Alert
+                              key={document.id}
+                              variant="success"
+                              className="d-flex align-items-center justify-content-between py-2 px-3 mb-2"
+                            >
+                              <span style={{ minWidth: 0, overflowWrap: "anywhere", marginRight: 10 }}>
+                                {index + 1}. <b>{document.file.name}</b> ({document.previewPages.length} {document.previewPages.length === 1 ? "page" : "pages"})
+                              </span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline-danger"
+                                aria-label={`Remove ${document.file.name}`}
+                                onClick={() => removeDocument(document.id)}
+                              >
+                                <FaTimes />
+                              </Button>
+                            </Alert>
+                          ))}
+                        </div>
                       )}
                     </motion.div>
                   )}
@@ -658,6 +629,12 @@ const PrintJob = () => {
                       >
                         <FaEye className="me-2" /> Select Pages
                       </div>
+                      {documentSelector}
+                      {documentsWithoutPages.length > 0 && (
+                        <Alert variant="warning" className="py-2 px-3 mb-2">
+                          Select at least one page in: {documentsWithoutPages.map((document) => document.file.name).join(", ")}
+                        </Alert>
+                      )}
                       {showPreview && (
                         <div style={{ minHeight: 140 }}>
                           <div className="d-flex mb-1 align-items-center">
@@ -691,6 +668,42 @@ const PrintJob = () => {
                               {selectedPages.length} page(s) selected
                             </span>
                           </div>
+                          <div className="d-flex flex-wrap align-items-center mt-2" style={{ gap: "0.5rem" }}>
+                            <span style={{ fontWeight: 600, fontSize: 15 }}>Select a range:</span>
+                            <Form.Control
+                              type="number"
+                              size="sm"
+                              min="1"
+                              max={previewPages.length}
+                              placeholder="From"
+                              aria-label="From page"
+                              value={pageRange.from}
+                              onChange={(e) => setPageRange({ ...pageRange, from: e.target.value })}
+                              onKeyDown={handlePageRangeKeyDown}
+                              style={{ width: 80 }}
+                            />
+                            <Form.Control
+                              type="number"
+                              size="sm"
+                              min="1"
+                              max={previewPages.length}
+                              placeholder="To"
+                              aria-label="To page"
+                              value={pageRange.to}
+                              onChange={(e) => setPageRange({ ...pageRange, to: e.target.value })}
+                              onKeyDown={handlePageRangeKeyDown}
+                              style={{ width: 80 }}
+                            />
+                            <Button type="button" size="sm" variant="outline-primary" onClick={applyPageRange}>
+                              Apply
+                            </Button>
+                            <span style={{ color: "#bca672", fontSize: 14 }}>of {previewPages.length} pages</span>
+                          </div>
+                          {pageRangeError && (
+                            <div role="alert" className="small mt-1" style={{ color: "#bf1b1b" }}>
+                              {pageRangeError}
+                            </div>
+                          )}
                           <div
                             style={{
                               display: "grid",
@@ -792,6 +805,12 @@ const PrintJob = () => {
                       >
                         <FaPrint className="me-2" /> Printing Specifications
                       </div>
+                      {documentSelector}
+                      {documents.length > 1 && (
+                        <div className="mb-3 small text-muted" style={{ overflowWrap: "anywhere" }}>
+                          These settings apply only to <b>{activeDocument?.file.name}</b>.
+                        </div>
+                      )}
                       <Form.Group className="mb-3">
                         <Form.Check
                           type="switch"
@@ -849,8 +868,8 @@ const PrintJob = () => {
                           }}
                         >
                           <option value="None">None</option>
-                          <option value="Spiral">Spiral Binding</option>
-                          <option value="Paper">Paper Binding</option>
+                          <option value="Spiral">Spiral Binding (₹{PRICING.BINDING_PRICE_PER_COPY.Spiral}/copy)</option>
+                          <option value="Paper">Paper Binding (₹{PRICING.BINDING_PRICE_PER_COPY.Paper}/copy)</option>
                         </Form.Select>
                       </Form.Group>
 
@@ -862,7 +881,7 @@ const PrintJob = () => {
                           max="10"
                           value={printOptions.copies}
                           onChange={(e) =>
-                            updatePrintOptions({ copies: Math.max(1, +e.target.value || 1) })
+                            updatePrintOptions({ copies: Math.min(10, Math.max(1, Math.floor(+e.target.value) || 1)) })
                           }
                           style={{
                             width: 110,
@@ -888,7 +907,7 @@ const PrintJob = () => {
                               }}
                             >
                               <div style={{ fontSize: "0.95rem", color: "#8a754b", marginBottom: "4px" }}>
-                                Estimated Total Cost ({selectedPages.length} pages × {printOptions.copies} {printOptions.copies > 1 ? 'copies' : 'copy'})
+                                {documents.length > 1 ? 'Estimated Cost of This Document' : 'Estimated Total Cost'} ({selectedPages.length} pages × {printOptions.copies} {printOptions.copies > 1 ? 'copies' : 'copy'})
                               </div>
                               <span
                                 style={{
@@ -897,12 +916,27 @@ const PrintJob = () => {
                                   color: "#b88a3b",
                                 }}
                               >
-                                ₹{pricing.total.toFixed(2)}
+                                ₹{estimatedTotal.toFixed(2)}
                               </span>
                               <br />
                               <span style={{ fontSize: "0.95em", fontWeight: 500 }}>
-                                {printOptions.color ? `Color: ${pricing.colorPages} pages` : `B&W: ${pricing.bwPages} pages`} | {paperSize || 'A4'} | {bindingType || 'None'} Binding
+                                {printOptions.color ? `Color: ${pricing.colorPages} pages` : `B&W: ${pricing.bwPages} pages`} | {paperSize || 'A4'} | {bindingType || 'None'} Binding{bindingCost > 0 && ` (₹${bindingCost.toFixed(2)})`}
                               </span>
+                              {documents.length > 1 && (
+                                <div className="mt-3 pt-3" style={{ borderTop: "1px solid #ecd5a3", textAlign: "left" }}>
+                                  <div className="fw-semibold mb-1" style={{ color: "#8a754b" }}>Order Summary</div>
+                                  {documents.map((document, index) => (
+                                    <div key={document.id} className="d-flex justify-content-between" style={{ fontSize: "0.92em", gap: 12 }}>
+                                      <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{index + 1}. {document.file.name}</span>
+                                      <span>₹{calculateDocumentPrice(document).total.toFixed(2)}</span>
+                                    </div>
+                                  ))}
+                                  <div className="d-flex justify-content-between mt-2" style={{ fontWeight: "bold", color: "#b88a3b", fontSize: "1.15rem" }}>
+                                    <span>Order Total ({documents.length} documents)</span>
+                                    <span>₹{orderTotal.toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              )}
                             </Alert>
                           </motion.div>
                         )}
@@ -958,22 +992,8 @@ const PrintJob = () => {
                         border: "none",
                         padding: "0.7em 1.3em",
                       }}
-                      disabled={
-                        loading ||
-                        !uploadedFile ||
-                        !rollNumber.trim() ||
-                        selectedPages.length === 0 ||
-                        !printOptions.copies ||
-                        printOptions.copies < 1
-                      }
-                      aria-disabled={
-                        loading ||
-                        !uploadedFile ||
-                        !rollNumber.trim() ||
-                        selectedPages.length === 0 ||
-                        !printOptions.copies ||
-                        printOptions.copies < 1
-                      }
+                      disabled={loading || !orderIsReady}
+                      aria-disabled={loading || !orderIsReady}
                     >
                       {loading ? "Processing..." : "Create Print Job"}
                     </Button>
@@ -982,6 +1002,7 @@ const PrintJob = () => {
               </Form>
             </motion.div>
           </Col>
+          {step === 1 && (
           <Col
             xs={12}
             lg={6}
@@ -1024,6 +1045,9 @@ const PrintJob = () => {
               }}>
                 <FaEye className="me-2" />
                 Print Preview
+                {documents.length > 1 && (
+                  <div className="small fw-normal" style={{ overflowWrap: "anywhere" }}>{activeDocument?.file.name}</div>
+                )}
               </div>
               {!!previewPages.length ? (
                 <div
@@ -1095,6 +1119,7 @@ const PrintJob = () => {
               )}
             </motion.div>
           </Col>
+          )}
         </Row>
       </Container>
       <style>{`

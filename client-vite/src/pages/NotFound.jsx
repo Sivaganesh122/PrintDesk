@@ -10,7 +10,7 @@ const NotFound = () => {
   return (
     <>
       <Helmet>
-        <title>Page Not Found - Print Repository System</title>
+        <title>Page Not Found - PrintDesk</title>
       </Helmet>
 
       <Container className="py-5">

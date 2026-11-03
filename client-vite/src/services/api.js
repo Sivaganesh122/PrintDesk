@@ -12,21 +12,20 @@ const api = axios.create({
   },
 });
 
+const isAdminRequest = (config) => /^\/?(admin|payment|reports)\/|^\/?auth\/validate/.test(config.url || '');
+
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
     if (config.headers?.Authorization) {
       return config;
     }
-    const adminToken = localStorage.getItem('adminToken');
-    const studentToken = localStorage.getItem('studentToken');
+    const token = isAdminRequest(config)
+      ? localStorage.getItem('adminToken')
+      : localStorage.getItem('studentToken') || localStorage.getItem('faculty_token');
 
-    if (config.url?.includes('student-')) {
-      if (studentToken) config.headers.Authorization = `Bearer ${studentToken}`;
-    } else if (adminToken) {
-      config.headers.Authorization = `Bearer ${adminToken}`;
-    } else if (studentToken) {
-      config.headers.Authorization = `Bearer ${studentToken}`;
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },
@@ -41,13 +40,13 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
-    if (error.response?.status === 401) {
-      // Unauthorized - clear token
+    // An expired admin session goes back to the admin login. Any other 401 (such as a
+    // wrong student password) is left for the page that made the request to show.
+    if (error.response?.status === 401 && error.config && isAdminRequest(error.config)
+      && localStorage.getItem('adminToken')) {
       localStorage.removeItem('adminToken');
-      // Avoid reload loops if already on admin pages
-      const path = window.location.pathname;
-      if (!path.startsWith('/admin') && path !== '/admin-login') {
-        window.location.href = '/admin';
+      if (window.location.pathname.startsWith('/admin')) {
+        window.location.href = '/admin-login';
       }
     }
     return Promise.reject(error);
@@ -64,27 +63,11 @@ export const endpoints = {
   studentMe: '/auth/student-me',
   
   // Print Job
-  createPrintJob: '/print-job',
-  uploadFile: '/print-job/upload',
-  deleteOrder: '/print-job',
-  getPreview: '/print-job/preview',
-  
-  // Payment
-  processPayment: '/payment/process',
-  verifyPayment: '/payment/verify',
-  
+  createPrintJob: '/print-job/create',
+  deleteOrder: '/print-job/order',
+
   // Tracking
-  trackOrder: '/tracking',
-  
-  // Admin
-  dashboard: '/admin/dashboard',
-  printJobs: '/admin/print-jobs',
-  updateJobStatus: '/admin/print-jobs',
-  payments: '/admin/payments',
-  
-  // Reports
-  generateReport: '/reports/generate',
-  downloadReport: '/reports/download',
+  myOrders: '/tracking/mine',
 };
 
 // API service functions
@@ -97,114 +80,37 @@ export const apiService = {
   getStudentProfile: () => api.get(endpoints.studentMe),
   
   // Print Job
-  createPrintJob: (jobData) => api.post(endpoints.createPrintJob, jobData),
-  uploadFile: (formData) => api.post(endpoints.uploadFile, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+  createPrintJob: (formData, authToken) => api.post(endpoints.createPrintJob, formData, {
+    headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${authToken}` },
+    timeout: 5 * 60 * 1000 // Several large documents can take longer than the default timeout
   }),
-  deleteOrder: async (token) => {
+  deleteOrder: async (orderNumber, authToken) => {
     try {
-      const response = await api.delete(`${endpoints.deleteOrder}/${token}`);
+      const response = await api.delete(`${endpoints.deleteOrder}/${orderNumber}`, {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
       return response.data;
     } catch (error) {
       console.error('Delete order error:', error);
       if (error.response?.status === 404) {
         throw new Error('Order not found or already cancelled');
       } else if (error.response?.status === 400) {
-        throw new Error('Order cannot be cancelled after 30 seconds');
+        throw new Error(error.response.data?.error || 'This order can no longer be cancelled');
       } else {
         throw new Error('Failed to cancel order. Please try again.');
       }
     }
   },
-  getPreview: (token) => api.get(`${endpoints.getPreview}/${token}`),
-  
-  // Payment
-  processPayment: (paymentData) => api.post(endpoints.processPayment, paymentData),
-  verifyPayment: (paymentId) => api.get(`${endpoints.verifyPayment}/${paymentId}`),
-  
+
   // Tracking
-  trackOrder: (token) => api.get(`${endpoints.trackOrder}/${token}`),
-  
+  getMyOrders: () => api.get(endpoints.myOrders),
+
   // Admin
   get: (endpoint, config = {}) => api.get(endpoint, config),
   post: (endpoint, data, config = {}) => api.post(endpoint, data, config),
   patch: (endpoint, data, config = {}) => api.patch(endpoint, data, config),
   put: (endpoint, data, config = {}) => api.put(endpoint, data, config),
   delete: (endpoint, config = {}) => api.delete(endpoint, config),
-  
-  // Reports
-  generateReport: (params = {}) => api.get(endpoints.generateReport, { params }),
-  downloadReport: (reportId) => api.get(`${endpoints.downloadReport}/${reportId}`, {
-    responseType: 'blob'
-  }),
 };
 
-// File upload helper
-export const uploadFile = async (file, onProgress) => {
-  const formData = new FormData();
-  formData.append('file', file);
-  
-  return api.post(endpoints.uploadFile, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    onUploadProgress: (progressEvent) => {
-      if (onProgress) {
-        const percentCompleted = Math.round(
-          (progressEvent.loaded * 100) / progressEvent.total
-        );
-        onProgress(percentCompleted);
-      }
-    },
-  });
-};
-
-// Payment processing helper
-export const processPayment = async (paymentData) => {
-  try {
-    const response = await api.post(endpoints.processPayment, paymentData);
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.error || 'Payment processing failed');
-  }
-};
-
-// Order tracking helper
-export const trackOrder = async (token) => {
-  try {
-    const response = await api.get(`${endpoints.trackOrder}/${token}`);
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.error || 'Order not found');
-  }
-};
-
-// Admin helpers
-export const adminService = {
-  getOrders: async (filters = {}) => {
-    try {
-      const response = await api.get(endpoints.getOrders, { params: filters });
-      return response.data;
-    } catch (error) {
-      throw new Error(error.response?.data?.error || 'Failed to fetch orders');
-    }
-  },
-  
-  updateOrderStatus: async (orderId, status) => {
-    try {
-      const response = await api.put(`${endpoints.updateOrderStatus}/${orderId}`, { status });
-      return response.data;
-    } catch (error) {
-      throw new Error(error.response?.data?.error || 'Failed to update order status');
-    }
-  },
-  
-  getOrderDetails: async (orderId) => {
-    try {
-      const response = await api.get(`${endpoints.getOrderDetails}/${orderId}`);
-      return response.data;
-    } catch (error) {
-      throw new Error(error.response?.data?.error || 'Failed to fetch order details');
-    }
-  },
-};
-
-export default api; 
+export default api;

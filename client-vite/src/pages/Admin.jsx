@@ -12,8 +12,6 @@ const Admin = () => {
   const [jobStatusFilter, setJobStatusFilter] = useState('all'); // 'all' | 'pending' | 'completed' | 'delivered' | 'cancelled'
   const [dashboardData, setDashboardData] = useState(null);
   const [printJobs, setPrintJobs] = useState([]);
-  const [payments, setPayments] = useState([]);
-  const [pdfViewer, setPdfViewer] = useState({ show: false, url: '', jobId: null });
   const [loadingData, setLoadingData] = useState(false);
 
   useEffect(() => {
@@ -38,7 +36,6 @@ const Admin = () => {
     if (admin) {
       loadDashboardData();
       loadPrintJobs();
-      loadPayments();
     }
   }, [admin, loadPrintJobs]);
 
@@ -53,17 +50,6 @@ const Admin = () => {
     }
   };
 
-  const loadPayments = async () => {
-    try {
-      const response = await apiService.get('/admin/payments?page=1&limit=10');
-      if (response.data.success) {
-        setPayments(response.data.data.payments);
-      }
-    } catch (error) {
-      console.error('Error loading payments:', error);
-    }
-  };
-
   const updateJobStatus = async (jobId, status) => {
     try {
       const response = await apiService.patch(`/admin/print-jobs/${jobId}/status`, { status });
@@ -73,136 +59,19 @@ const Admin = () => {
       }
     } catch (error) {
       console.error('Error updating job status:', error);
+      alert(error.response?.data?.error || 'Failed to update the job status.');
     }
   };
 
-  const getBackendBaseUrl = () => {
-    const raw = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-    return raw.replace(/\/api\/?$/, '');
+  // Uploaded files need the admin login, so they are fetched rather than linked to directly
+  const fetchJobFileUrl = async (job) => {
+    const response = await apiService.get(`/admin/print-jobs/${job.id}/file`, { responseType: 'blob' });
+    return window.URL.createObjectURL(response.data);
   };
 
-  const getPdfUrl = (job) => {
-    if (!job?.file_path || job?.status === 'cancelled') return '';
-    return `${getBackendBaseUrl()}/uploads/${job.file_path}`;
-  };
+  const getFileExtension = (job) => job.file_path.split('.').pop().toLowerCase();
 
-  const viewPdf = (job) => {
-    if (job?.status === 'cancelled') {
-      alert('File access is restricted for cancelled tasks. Only metadata can be viewed.');
-      return;
-    }
-    if (job?.file_path) {
-      const pdfUrl = getPdfUrl(job);
-      setPdfViewer({ show: true, url: pdfUrl, jobId: job.id });
-    }
-  };
-
-  const printPdf = () => {
-    if (pdfViewer.url) {
-      const printWindow = window.open(pdfViewer.url, '_blank');
-      if (printWindow) {
-        printWindow.onload = () => {
-          printWindow.print();
-        };
-      }
-    }
-  };
-
-  const printDirectly = () => {
-    if (pdfViewer.url) {
-      // Show loading message
-      alert('Preparing print... Please wait.');
-      
-      // Method 1: Try using fetch to get PDF data and print
-      fetch(pdfViewer.url)
-        .then(response => response.blob())
-        .then(blob => {
-          const url = URL.createObjectURL(blob);
-          const printWindow = window.open(url, '_blank');
-          if (printWindow) {
-            printWindow.onload = () => {
-              setTimeout(() => {
-                printWindow.print();
-                alert('Print dialog opened! Please select your printer and print settings.');
-              }, 1000);
-            };
-          } else {
-            // Fallback to iframe method
-            printWithIframe();
-          }
-        })
-        .catch(error => {
-          console.error('Fetch error:', error);
-          // Fallback to iframe method
-          printWithIframe();
-        });
-    } else {
-      alert('No PDF available to print.');
-    }
-  };
-
-  const printWithIframe = () => {
-    // Create a hidden iframe for printing
-    const printFrame = document.createElement('iframe');
-    printFrame.style.display = 'none';
-    printFrame.src = pdfViewer.url;
-    
-    printFrame.onload = () => {
-      try {
-        // Wait a bit for PDF to fully load
-        setTimeout(() => {
-          printFrame.contentWindow.print();
-          alert('Print dialog opened! Please select your printer and print settings.');
-        }, 1000);
-      } catch (error) {
-        console.error('Print error:', error);
-        alert('Direct printing failed. Opening PDF in new window...');
-        // Fallback to opening in new window
-        const printWindow = window.open(pdfViewer.url, '_blank');
-        if (printWindow) {
-          printWindow.onload = () => {
-            printWindow.print();
-          };
-        }
-      }
-      
-      // Remove the iframe after printing
-      setTimeout(() => {
-        if (document.body.contains(printFrame)) {
-          document.body.removeChild(printFrame);
-        }
-      }, 5000);
-    };
-    
-    printFrame.onerror = () => {
-      alert('Failed to load PDF. Opening in new window...');
-      const printWindow = window.open(pdfViewer.url, '_blank');
-      if (printWindow) {
-        printWindow.onload = () => {
-          printWindow.print();
-        };
-      }
-    };
-    
-    document.body.appendChild(printFrame);
-  };
-
-  const downloadPdf = () => {
-    if (pdfViewer.url) {
-      const link = document.createElement('a');
-      link.href = pdfViewer.url;
-      link.download = `print-job-${pdfViewer.jobId}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } else {
-      alert('No PDF available to download.');
-    }
-  };
-
-  const closePdfViewer = () => {
-    setPdfViewer({ show: false, url: '', jobId: null });
-  };
+  const formatPages = (pages) => (pages?.length ? pages.join(', ') : 'Not recorded');
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -218,67 +87,71 @@ const Admin = () => {
     return `₹${parseFloat(price).toFixed(2)}`;
   };
 
-  const viewJobPdf = (job) => {
+  const viewJobPdf = async (job) => {
     if (job?.status === 'cancelled') {
       alert('File access is restricted for cancelled tasks. Only metadata can be viewed.');
       return;
     }
     if (job?.file_path) {
-      const pdfUrl = getPdfUrl(job);
-      window.open(pdfUrl, '_blank');
+      // Open the tab during the click, otherwise the browser treats it as a popup
+      const viewWindow = window.open('', '_blank');
+      if (!viewWindow) {
+        alert('Your browser blocked the new tab. Allow pop-ups for this site, or use Download.');
+        return;
+      }
+      try {
+        viewWindow.location.href = await fetchJobFileUrl(job);
+      } catch {
+        viewWindow.close();
+        alert('Unable to open the file. It may no longer exist.');
+      }
     }
   };
 
-  const printJobPdf = (job) => {
+  const printJobPdf = async (job) => {
     if (job?.status === 'cancelled') {
       alert('File access is restricted for cancelled tasks. Only metadata can be viewed.');
       return;
     }
     if (job?.file_path) {
-      const pdfUrl = getPdfUrl(job);
-      fetch(pdfUrl)
-        .then(res => {
-          if (!res.ok) throw new Error('File not found');
-          return res.blob();
-        })
-        .then(blob => {
-          const url = window.URL.createObjectURL(blob);
-          const printWindow = window.open(url, '_blank');
-          if (printWindow) {
-            printWindow.onload = () => {
-              setTimeout(() => {
-                printWindow.print();
-              }, 1000);
-            };
-          }
-        })
-        .catch(() => alert('Unable to print PDF. File may not exist.'));
+      if (!['pdf', 'jpg', 'jpeg', 'png'].includes(getFileExtension(job))) {
+        alert('Word documents cannot be printed from the browser. Download the file and print it from Word.');
+        return;
+      }
+      try {
+        const url = await fetchJobFileUrl(job);
+        const printFrame = document.createElement('iframe');
+        printFrame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+        printFrame.src = url;
+        printFrame.onload = () => {
+          printFrame.contentWindow.focus();
+          printFrame.contentWindow.print();
+        };
+        document.body.appendChild(printFrame);
+      } catch {
+        alert('Unable to print the file. It may no longer exist.');
+      }
     }
   };
 
-  const downloadJobPdf = (job) => {
+  const downloadJobPdf = async (job) => {
     if (job?.status === 'cancelled') {
       alert('File access is restricted for cancelled tasks. Only metadata can be viewed.');
       return;
     }
     if (job?.file_path) {
-      const pdfUrl = getPdfUrl(job);
-      fetch(pdfUrl)
-        .then(res => {
-          if (!res.ok) throw new Error('File not found');
-          return res.blob();
-        })
-        .then(blob => {
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `print-job-${job.id}.pdf`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          setTimeout(() => window.URL.revokeObjectURL(url), 1000);
-        })
-        .catch(() => alert('Unable to download PDF. File may not exist.'));
+      try {
+        const url = await fetchJobFileUrl(job);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = job.original_filename || `print-job-${job.id}.${getFileExtension(job)}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+      } catch {
+        alert('Unable to download the file. It may no longer exist.');
+      }
     }
   };
 
@@ -346,12 +219,6 @@ const Admin = () => {
           >
             Print Jobs
           </button>
-          <button 
-            className={activeTab === 'payments' ? 'active' : ''} 
-            onClick={() => setActiveTab('payments')}
-          >
-            Payments
-          </button>
         </nav>
       </div>
 
@@ -386,10 +253,6 @@ const Admin = () => {
                       <p className="stat-number cancelled">{dashboardData.stats.cancelledJobs}</p>
                     </div>
                   )}
-                  <div className="stat-card">
-                    <h3>Total Revenue</h3>
-                    <p className="stat-number revenue">{formatPrice(dashboardData.stats.totalRevenue)}</p>
-                  </div>
                 </div>
 
                 <div className="recent-jobs">
@@ -494,11 +357,20 @@ const Admin = () => {
                       <p><strong>Customer:</strong> {job.customer_name}</p>
                       {job.customer_email && <p><strong>Email:</strong> {job.customer_email}</p>}
                       <p><strong>Type:</strong> {job.print_type}</p>
-                      <p><strong>Quantity:</strong> {job.quantity}</p>
+                      {job.original_filename && <p><strong>File:</strong> {job.original_filename}</p>}
+                      {job.order_number && (
+                        <p style={{ overflowWrap: 'anywhere' }}>
+                          <strong>Order:</strong> {job.order_number} (document {job.order_document_number} of {job.order_document_count})
+                        </p>
+                      )}
+                      <p><strong>Pages:</strong> {formatPages(job.selected_pages)} ({job.quantity} total)</p>
+                      <p><strong>Copies:</strong> {job.copies}</p>
+                      <p><strong>Color:</strong> {job.color_type}</p>
+                      <p><strong>Sides:</strong> {job.double_sided ? 'Double-sided' : 'Single-sided'}</p>
+                      <p><strong>Paper Size:</strong> {job.paper_size}</p>
+                      <p><strong>Binding:</strong> {job.binding}</p>
                       <p><strong>Price:</strong> {formatPrice(job.total_price)}</p>
                       <p><strong>Date:</strong> {formatDate(job.created_at)}</p>
-                      <p><strong>Paper Size:</strong> {job.paper_size || "A4"}</p>
-                      <p><strong>Binding:</strong> {job.binding_type || "N/A"}</p>
                     </div>
 
                     <div className="job-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -555,76 +427,7 @@ const Admin = () => {
             )}
           </div>
         )}
-
-        {activeTab === 'payments' && (
-          <div className="payments">
-            <h2>Payment History</h2>
-            <div className="payments-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Transaction ID</th>
-                    <th>Customer</th>
-                    <th>Amount</th>
-                    <th>Method</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map(payment => (
-                    <tr key={payment.id}>
-                      <td>{payment.transaction_id}</td>
-                      <td>{payment.customer_name}</td>
-                      <td>{formatPrice(payment.amount)}</td>
-                      <td>{payment.payment_method}</td>
-                      <td>
-                        <span className={`status-badge ${payment.status}`}>
-                          {payment.status}
-                        </span>
-                      </td>
-                      <td>{formatDate(payment.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </main>
-
-      {/* PDF Viewer Modal */}
-      {pdfViewer.show && (
-        <div className="pdf-modal">
-          <div className="pdf-modal-content">
-            <div className="pdf-modal-header">
-              <h3>PDF Viewer</h3>
-              <div className="pdf-actions">
-                <button onClick={printDirectly} className="btn btn-success">
-                  Print Directly
-                </button>
-                <button onClick={printPdf} className="btn btn-primary">
-                  Print PDF
-                </button>
-                <button onClick={downloadPdf} className="btn btn-info">
-                  Download PDF
-                </button>
-                <button onClick={closePdfViewer} className="btn btn-secondary">
-                  Close
-                </button>
-              </div>
-            </div>
-            <div className="pdf-viewer">
-              <iframe
-                src={pdfViewer.url}
-                title="PDF Viewer"
-                width="100%"
-                height="600px"
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

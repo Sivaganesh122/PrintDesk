@@ -41,21 +41,15 @@ const ThankYou = () => {
       return;
     }
 
-    const token = orderData?.token || orderData?.trackingNumber;
-    if (!token) {
-      toast.error('Order token not found');
-      return;
-    }
-
     setCancelling(true);
-    
+
     try {
-      await apiService.deleteOrder(token);
+      await apiService.deleteOrder(orderData.orderNumber, localStorage.getItem('faculty_token'));
       toast.success('Order cancelled successfully');
       navigate('/');
     } catch (error) {
       console.error('Cancel error:', error);
-      toast.error('Failed to cancel order. Please try again.');
+      toast.error(error.message);
     } finally {
       setCancelling(false);
     }
@@ -63,45 +57,60 @@ const ThankYou = () => {
 
   const generateBillPDF = () => {
     const doc = new jsPDF();
-    const token = orderData?.token || orderData?.trackingNumber || 'N/A';
-    
+    const LAST_LINE = 270;
+
     // Add header
     doc.setFontSize(20);
     doc.text('Departments Portal System', 105, 20, { align: 'center' });
-    
+
     doc.setFontSize(12);
     doc.text('Order Receipt', 105, 35, { align: 'center' });
-    
+
     // Add order details
     doc.setFontSize(10);
-    doc.text(`Order Token: ${token}`, 20, 50);
-    doc.text(`Department ID: ${orderData.facultyId || orderData.rollNumber || orderData.departmentName}`, 20, 60);
+    doc.text(`Order Number: ${orderData.orderNumber}`, 20, 50);
+    doc.text(`Department: ${orderData.customerName}`, 20, 60);
     doc.text(`Date: ${new Date().toLocaleDateString()}`, 20, 70);
-    
-    // Add document details
-    doc.text('Document Details:', 20, 85);
-    doc.text(`Total Pages: ${orderData.totalPages}`, 30, 95);
-    
-    // Add print options
-    doc.text('Print Options:', 20, 110);
-    doc.text(`Double-sided: ${orderData.printOptions.doubleSided ? 'Yes' : 'No'}`, 30, 120);
-    doc.text(`Copies: ${orderData.printOptions.copies}`, 30, 130);
-    
+
+    let y = 85;
+    orderData.documents.forEach((document, index) => {
+      const lines = [
+        `Token: ${document.trackingNumber}`,
+        `Pages: ${document.pages} | Copies: ${document.copies} | ${document.color ? 'Color' : 'Black & White'} | ${document.doubleSided ? 'Double-sided' : 'Single-sided'}`,
+        `Paper Size: ${document.paperSize} | Binding: ${document.bindingType}`
+      ];
+      const title = doc.splitTextToSize(`${index + 1}. ${document.fileName}`, 170);
+
+      if (y + (title.length + lines.length) * 7 > LAST_LINE) {
+        doc.addPage();
+        y = 20;
+      }
+
+      doc.setFont(undefined, 'bold');
+      doc.text(title, 20, y);
+      y += title.length * 7;
+      doc.setFont(undefined, 'normal');
+      lines.forEach((line) => {
+        doc.text(line, 25, y);
+        y += 7;
+      });
+      y += 3;
+    });
+
     // Add footer
     doc.setFontSize(8);
-    doc.text('Thank you for using Departments Portal System', 105, 280, { align: 'center' });
-    
+    doc.text('Thank you for using Departments Portal System', 105, 285, { align: 'center' });
+
     return doc;
   };
 
   const handleDownloadReceipt = async () => {
     setDownloading(true);
-    
+
     try {
       const doc = generateBillPDF();
-      const token = orderData?.token || orderData?.trackingNumber || 'receipt';
-      const fileName = `receipt_${token}_${new Date().toISOString().split('T')[0]}.pdf`;
-      
+      const fileName = `receipt_${orderData.orderNumber}_${new Date().toISOString().split('T')[0]}.pdf`;
+
       doc.save(fileName);
       toast.success('Receipt downloaded successfully');
     } catch (error) {
@@ -123,33 +132,43 @@ const ThankYou = () => {
   return (
     <div className="thank-you-container">
       <div className="animated-bg-layer"></div>
-      
+
       <div className="thank-you-card">
         <div className="thank-you-header">
           <FaCheckCircle className="success-icon" />
           <h1>Order Confirmed!</h1>
-          <p className="subtitle">Your document request has been successfully submitted</p>
+          <p className="subtitle">
+            Your document {orderData.documents.length === 1 ? 'request has' : 'requests have'} been successfully submitted
+          </p>
         </div>
 
         <div className="order-details-grid">
           <div className="order-detail-section">
             <h3>Order Details</h3>
-            <p><strong>Department ID:</strong> {orderData.facultyId || orderData.rollNumber || orderData.departmentName}</p>
-            <p><strong>Total Pages:</strong> {orderData.totalPages}</p>
-            <p><strong>Order Token:</strong> {orderData.token || orderData.trackingNumber}</p>
+            <p><strong>Department:</strong> {orderData.customerName}</p>
+            <p style={{ overflowWrap: 'anywhere' }}><strong>Order Number:</strong> {orderData.orderNumber}</p>
           </div>
 
-          <div className="order-detail-section">
-            <h3>Print Options</h3>
-            <p><strong>Double-sided:</strong> {orderData.printOptions.doubleSided ? 'Yes' : 'No'}</p>
-            <p><strong>Copies:</strong> {orderData.printOptions.copies}</p>
-          </div>
+          {orderData.documents.map((document, index) => (
+            <div className="order-detail-section" key={document.id}>
+              <h3 style={{ overflowWrap: 'anywhere' }}>{index + 1}. {document.fileName}</h3>
+              <p><strong>Pages:</strong> {document.pages}</p>
+              <p><strong>Copies:</strong> {document.copies}</p>
+              <p><strong>Print:</strong> {document.color ? 'Color' : 'Black & White'}</p>
+              <p><strong>Double-sided:</strong> {document.doubleSided ? 'Yes' : 'No'}</p>
+              <p><strong>Paper Size:</strong> {document.paperSize}</p>
+              <p><strong>Binding:</strong> {document.bindingType}</p>
+            </div>
+          ))}
         </div>
 
         {timeLeft > 0 && (
           <div className="cancellation-notice">
             <FaClock className="clock-icon" />
-            <span>You have {timeLeft} seconds to cancel this request if needed.</span>
+            <span>
+              You have {timeLeft} seconds to cancel this request if needed.
+              {orderData.documents.length > 1 && ' Cancelling removes all documents in the request.'}
+            </span>
           </div>
         )}
 

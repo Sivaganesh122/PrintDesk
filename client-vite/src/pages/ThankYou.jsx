@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Container, Row, Col, Card, Button, Alert, Modal } from 'react-bootstrap';
+import { Container, Row, Col, Card, Button, Alert, Table } from 'react-bootstrap';
 import { Helmet } from 'react-helmet';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { FaCheckCircle, FaDownload, FaTimes, FaClock, FaCreditCard } from 'react-icons/fa';
+import { FaCheckCircle, FaDownload, FaTimes, FaClock } from 'react-icons/fa';
 import { jsPDF } from 'jspdf';
 import { apiService } from '../services/api';
 
@@ -13,8 +13,6 @@ const ThankYou = () => {
   const [timeLeft, setTimeLeft] = useState(30); // 30 seconds to cancel
   const [cancelling, setCancelling] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [showPayment, setShowPayment] = useState(false);
-  const [processingPayment, setProcessingPayment] = useState(false);
 
   const orderData = location.state?.orderData;
 
@@ -44,21 +42,15 @@ const ThankYou = () => {
       return;
     }
 
-    const token = orderData?.token || orderData?.trackingNumber;
-    if (!token) {
-      toast.error('Order token not found');
-      return;
-    }
-
     setCancelling(true);
-    
+
     try {
-      await apiService.deleteOrder(token);
+      await apiService.deleteOrder(orderData.orderNumber, localStorage.getItem('studentToken'));
       toast.success('Order cancelled successfully');
       navigate('/');
     } catch (error) {
       console.error('Cancel error:', error);
-      toast.error('Failed to cancel order. Please try again.');
+      toast.error(error.message);
     } finally {
       setCancelling(false);
     }
@@ -66,59 +58,73 @@ const ThankYou = () => {
 
   const generateBillPDF = () => {
     const doc = new jsPDF();
-    const token = orderData?.token || orderData?.trackingNumber || 'N/A';
-    
+    const LAST_LINE = 270;
+
     // Add header
     doc.setFontSize(20);
-    doc.text('Print Repository System', 105, 20, { align: 'center' });
-    
+    doc.text('PrintDesk', 105, 20, { align: 'center' });
+
     doc.setFontSize(12);
     doc.text('Bill Receipt', 105, 35, { align: 'center' });
-    
+
     // Add order details
     doc.setFontSize(10);
-    doc.text(`Order Token: ${token}`, 20, 50);
-    doc.text(`Roll Number: ${orderData.rollNumber}`, 20, 60);
+    doc.text(`Order Number: ${orderData.orderNumber}`, 20, 50);
+    doc.text(`Roll Number: ${orderData.customerName}`, 20, 60);
     doc.text(`Date: ${new Date().toLocaleDateString()}`, 20, 70);
-    
-    // Add print details
-    doc.text('Print Details:', 20, 85);
-    doc.text(`Total Pages: ${orderData.totalPages}`, 30, 95);
-    doc.text(`Color Pages: ${orderData.colorPages}`, 30, 105);
-    doc.text(`B&W Pages: ${orderData.bwPages}`, 30, 115);
-    
-    // Add print options
-    doc.text('Print Options:', 20, 130);
-    doc.text(`Color Printing: ${orderData.printOptions.color ? 'Yes' : 'No'}`, 30, 140);
-    doc.text(`Double-sided: ${orderData.printOptions.doubleSided ? 'Yes' : 'No'}`, 30, 150);
-    doc.text(`Copies: ${orderData.printOptions.copies}`, 30, 160);
-    
-    // Add pricing
-    doc.text('Pricing:', 20, 175);
-    doc.text(`B&W Cost: ₹${(orderData.bwPages * 1).toFixed(2)}`, 30, 185);
-    doc.text(`Color Cost: ₹${(orderData.colorPages * 2).toFixed(2)}`, 30, 195);
-    
+
+    // The default PDF font has no rupee sign, so amounts use "Rs."
+    let y = 85;
+    orderData.documents.forEach((document, index) => {
+      const lines = [
+        `Token: ${document.trackingNumber}`,
+        `Pages: ${document.pages} | Copies: ${document.copies} | ${document.color ? 'Color' : 'Black & White'} | ${document.doubleSided ? 'Double-sided' : 'Single-sided'}`,
+        `Paper Size: ${document.paperSize} | Binding: ${document.bindingType}`,
+        `Printing: Rs. ${document.pagesCost.toFixed(2)} | Binding: Rs. ${document.bindingCost.toFixed(2)} | Cost: Rs. ${document.totalPrice.toFixed(2)}`
+      ];
+      const title = doc.splitTextToSize(`${index + 1}. ${document.fileName}`, 170);
+
+      if (y + (title.length + lines.length) * 7 > LAST_LINE) {
+        doc.addPage();
+        y = 20;
+      }
+
+      doc.setFont(undefined, 'bold');
+      doc.text(title, 20, y);
+      y += title.length * 7;
+      doc.setFont(undefined, 'normal');
+      lines.forEach((line) => {
+        doc.text(line, 25, y);
+        y += 7;
+      });
+      y += 3;
+    });
+
+    if (y > LAST_LINE) {
+      doc.addPage();
+      y = 20;
+    }
+
     // Add total
     doc.setFontSize(12);
     doc.setFont(undefined, 'bold');
-    doc.text(`Total Amount: ₹${orderData.price.toFixed(2)}`, 20, 205);
-    
+    doc.text(`Total Amount: Rs. ${orderData.totalPrice.toFixed(2)}`, 20, y + 5);
+
     // Add footer
     doc.setFontSize(8);
     doc.setFont(undefined, 'normal');
-    doc.text('Thank you for using Print Repository System', 105, 280, { align: 'center' });
-    
+    doc.text('Thank you for using PrintDesk', 105, 285, { align: 'center' });
+
     return doc;
   };
 
   const handleDownloadBill = async () => {
     setDownloading(true);
-    
+
     try {
       const doc = generateBillPDF();
-      const token = orderData?.token || orderData?.trackingNumber || 'receipt';
-      const fileName = `bill_${token}_${new Date().toISOString().split('T')[0]}.pdf`;
-      
+      const fileName = `bill_${orderData.orderNumber}_${new Date().toISOString().split('T')[0]}.pdf`;
+
       doc.save(fileName);
       toast.success('Bill downloaded successfully');
     } catch (error) {
@@ -126,60 +132,6 @@ const ThankYou = () => {
       toast.error('Failed to download bill');
     } finally {
       setDownloading(false);
-    }
-  };
-
-  const handlePayment = () => {
-    setShowPayment(true);
-  };
-
-  const handlePaytmPayment = async () => {
-    const token = orderData?.token || orderData?.trackingNumber;
-    if (!token) {
-      toast.error('Order token not found');
-      return;
-    }
-
-    setProcessingPayment(true);
-    
-    try {
-      const response = await apiService.processPayment({
-        orderId: token,
-        amount: orderData.price,
-        rollNumber: orderData.rollNumber
-      });
-
-      if (response.success && response.paytmParams) {
-        // Create a form to submit to Paytm
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = response.paytmUrl;
-        form.target = '_blank';
-
-        // Add all Paytm parameters as hidden fields
-        Object.keys(response.paytmParams).forEach(key => {
-          const input = document.createElement('input');
-          input.type = 'hidden';
-          input.name = key;
-          input.value = response.paytmParams[key];
-          form.appendChild(input);
-        });
-
-        // Submit the form
-        document.body.appendChild(form);
-        form.submit();
-        document.body.removeChild(form);
-
-        toast.success('Redirecting to Paytm for payment...');
-        setShowPayment(false);
-      } else {
-        toast.error(response.error || 'Payment initiation failed');
-      }
-    } catch (error) {
-      console.error('Payment error:', error);
-      toast.error(error.message || 'Payment processing failed');
-    } finally {
-      setProcessingPayment(false);
     }
   };
 
@@ -194,84 +146,74 @@ const ThankYou = () => {
   return (
     <>
       <Helmet>
-        <title>Order Confirmation - Print Repository System</title>
+        <title>Order Confirmation - PrintDesk</title>
       </Helmet>
 
       <Container className="py-5">
         <Row className="justify-content-center">
-          <Col lg={8}>
+          <Col lg={10}>
             <Card className="text-center border-0 shadow">
-              <Card.Body className="p-5">
+              <Card.Body className="p-4 p-md-5">
                 <div className="mb-4">
                   <FaCheckCircle size={64} className="text-success mb-3" />
                   <h1 className="text-success">Order Confirmed!</h1>
                   <p className="lead text-muted">
-                    Your print job has been successfully created
+                    Your print {orderData.documents.length === 1 ? 'job has' : 'jobs have'} been successfully created
                   </p>
                 </div>
 
-                <Row className="mb-4">
-                  <Col md={6}>
-                    <Card className="border-0 bg-light">
-                      <Card.Body>
-                        <h6>Order Details</h6>
-                        <p className="mb-1">
-                          <strong>Roll Number:</strong> {orderData.rollNumber}
-                        </p>
-                        <p className="mb-1">
-                          <strong>Total Pages:</strong> {orderData.totalPages}
-                        </p>
-                        <p className="mb-1">
-                          <strong>Color Pages:</strong> {orderData.colorPages}
-                        </p>
-                        <p className="mb-1">
-                          <strong>B&W Pages:</strong> {orderData.bwPages}
-                        </p>
-                        <p className="mb-0">
-                          <strong>Total Cost:</strong> ₹{orderData.price.toFixed(2)}
-                        </p>
-                      </Card.Body>
-                    </Card>
-                  </Col>
-                  <Col md={6}>
-                    <Card className="border-0 bg-light">
-                      <Card.Body>
-                        <h6>Print Options</h6>
-                        <p className="mb-1">
-                          <strong>Color:</strong> {orderData.printOptions.color ? 'Yes' : 'No'}
-                        </p>
-                        <p className="mb-1">
-                          <strong>Double-sided:</strong> {orderData.printOptions.doubleSided ? 'Yes' : 'No'}
-                        </p>
-                        <p className="mb-1">
-                          <strong>Copies:</strong> {orderData.printOptions.copies}
-                        </p>
-                        <p className="mb-0">
-                          <strong>Order Token:</strong> {orderData.token || orderData.trackingNumber}
-                        </p>
-                      </Card.Body>
-                    </Card>
-                  </Col>
-                </Row>
+                <p className="mb-1">
+                  <strong>Roll Number:</strong> {orderData.customerName}
+                </p>
+                <p className="mb-4" style={{ overflowWrap: 'anywhere' }}>
+                  <strong>Order Number:</strong> {orderData.orderNumber}
+                </p>
+
+                <Table responsive bordered size="sm" className="text-start align-middle mb-4">
+                  <thead>
+                    <tr>
+                      <th>Document</th>
+                      <th>Pages</th>
+                      <th>Copies</th>
+                      <th>Print</th>
+                      <th>Paper</th>
+                      <th>Binding</th>
+                      <th className="text-end">Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderData.documents.map((document) => (
+                      <tr key={document.id}>
+                        <td style={{ overflowWrap: 'anywhere', minWidth: 140 }}>{document.fileName}</td>
+                        <td>{document.pages}</td>
+                        <td>{document.copies}</td>
+                        <td>{document.color ? 'Color' : 'B&W'}, {document.doubleSided ? 'double-sided' : 'single-sided'}</td>
+                        <td>{document.paperSize}</td>
+                        <td>
+                          {document.bindingType}
+                          {document.bindingCost > 0 && ` (₹${document.bindingCost.toFixed(2)})`}
+                        </td>
+                        <td className="text-end">₹{document.totalPrice.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <th colSpan={6}>Total Cost</th>
+                      <th className="text-end">₹{orderData.totalPrice.toFixed(2)}</th>
+                    </tr>
+                  </tfoot>
+                </Table>
 
                 {timeLeft > 0 && (
                   <Alert variant="warning" className="mb-4">
                     <FaClock className="me-2" />
                     You have {timeLeft} seconds to cancel this order if needed.
+                    {orderData.documents.length > 1 && ' Cancelling removes all documents in the order.'}
                   </Alert>
                 )}
 
                 <div className="d-grid gap-2 d-md-flex justify-content-md-center">
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    onClick={handlePayment}
-                    className="me-md-2"
-                  >
-                    <FaCreditCard className="me-2" />
-                    Pay Now
-                  </Button>
-                  
                   <Button
                     variant="outline-success"
                     size="lg"
@@ -318,46 +260,8 @@ const ThankYou = () => {
           </Col>
         </Row>
       </Container>
-
-      {/* Payment Modal */}
-      <Modal show={showPayment} onHide={() => setShowPayment(false)} size="lg">
-        <Modal.Header closeButton>
-          <Modal.Title>Payment</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <div className="text-center">
-            <h5>Payment Amount: ₹{orderData.price.toFixed(2)}</h5>
-            <p className="text-muted">Order Token: {orderData.token || orderData.trackingNumber}</p>
-            
-            <div className="mt-4">
-              <Button 
-                variant="success" 
-                size="lg" 
-                onClick={handlePaytmPayment}
-                disabled={processingPayment}
-                className="me-3"
-              >
-                {processingPayment ? 'Processing...' : 'Pay with Paytm'}
-              </Button>
-              <Button 
-                variant="outline-secondary" 
-                size="lg"
-                onClick={() => setShowPayment(false)}
-                disabled={processingPayment}
-              >
-                Cancel
-              </Button>
-            </div>
-            
-            <Alert variant="info" className="mt-3">
-              <strong>Note:</strong> You will be redirected to Paytm's secure payment gateway.
-              Please complete the payment and return to track your order status.
-            </Alert>
-          </div>
-        </Modal.Body>
-      </Modal>
     </>
   );
 };
 
-export default ThankYou; 
+export default ThankYou;
