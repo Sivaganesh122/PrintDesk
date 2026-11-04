@@ -9,7 +9,8 @@ A full-stack print job management system for educational institutions. Students 
 - PDF/document preview and print option capture
 - Roll-number and tracking-number based order lookup for your own orders
 - Admin login and dashboard
-- Print job status management
+- Print job status management, with register number search
+- Printing from the admin page on the printers connected to the server's computer, with each order's settings filled in, live printer and job status, and a printer activity log (see Printing below)
 - Department login
 - Sales and print-type reporting APIs
 - Local file storage with scheduled cleanup support
@@ -133,7 +134,6 @@ Health:   http://localhost:5001/health
 | Reports (admin login) | `/api/reports` |
 | Payments (admin login, no gateway connected yet) | `/api/payment` |
 | Department Login | `/api/faculty-login` |
-
 ## Build
 
 ```bash
@@ -150,6 +150,28 @@ cd server
 npm test
 npm run lint
 ```
+
+## Printing
+
+When the backend runs on the Windows computer the printers are connected to, admins print straight from **Admin → Print Jobs**:
+
+- **Printers** lists every printer installed in Windows with its state (ready, out of paper, paper jam, offline...) and how many jobs are waiting.
+- **Print** on a job opens PrintDesk's print screen with the order's printer, pages, copies, sides, colour and paper size filled in. Any of them can be changed before printing.
+- The job card then follows the job through the Windows print queue: sending, printing page 3 of 6, held up by the printer (it carries on once fixed), printed, or failed. The order moves to Processing and then Completed by itself.
+- **Show printer activity** lists everything that passed between the computer and its printers.
+
+Files are printed with [pdf-to-printer](https://www.npmjs.com/package/pdf-to-printer) (which includes the SumatraPDF print engine), and the queue is read with Windows' `Get-Printer` and `Get-PrintJob`. Install the printers' own drivers and print a Windows test page first.
+
+Limits:
+
+- PDFs and images (JPG, PNG) can be printed. Word documents still need to be downloaded and printed from Word.
+- Printers that save a file instead of printing (Microsoft Print to PDF, OneNote, XPS, Fax) are listed but can't be used, because they would open a save window on the server's screen.
+- How detailed printer problems are depends on the printer's driver. Some only report a general error.
+- "Printed" means the whole job left the Windows print queue. Check the output before marking an order delivered.
+- If the server restarts while a job is printing, the job is marked as failed. Check the printer before printing it again.
+- The browser's own print dialog is still available from the print screen.
+
+To try printing without real printers, start the backend with `PRINTERS_SIMULATE=1` to get two pretend printers. `PRINTERS_SIMULATE_PAPER_OUT=2` also makes them run out of paper on page 2.
 
 ## Notes
 

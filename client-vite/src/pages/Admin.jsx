@@ -1,7 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAdminAuth } from '../context/AdminAuthContext';
 import { useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
+import { buildPrintFile, copyCount } from '../utils/printFile';
+import { ACTIVE_PRINT_STATES, PRINT_STATE_LABELS } from '../utils/printStatus';
+import PrintDialog from '../components/PrintDialog';
+import PrintersPanel from '../components/PrintersPanel';
 import niaLogo from './nialogo-removebg.png';
 import './Admin.css';
 
@@ -12,32 +16,97 @@ const Admin = () => {
   const [jobStatusFilter, setJobStatusFilter] = useState('all'); // 'all' | 'pending' | 'completed' | 'delivered' | 'cancelled'
   const [dashboardData, setDashboardData] = useState(null);
   const [printJobs, setPrintJobs] = useState([]);
+  const [jobSearch, setJobSearch] = useState('');
+  const latestJobsRequest = useRef(0);
   const [loadingData, setLoadingData] = useState(false);
+  const [printingJob, setPrintingJob] = useState(null);
+  const [printerInfo, setPrinterInfo] = useState(null);
+  const [printEvents, setPrintEvents] = useState([]);
+  const [showPrintLog, setShowPrintLog] = useState(false);
+  const [printDialogJob, setPrintDialogJob] = useState(null);
 
   useEffect(() => {
     if (!loading && !admin) navigate('/admin-login');
   }, [admin, loading, navigate]);
 
   const loadPrintJobs = useCallback(async () => {
+    // A slower earlier search must not overwrite the results of a newer one
+    const request = ++latestJobsRequest.current;
     setLoadingData(true);
     try {
-      const response = await apiService.get('/admin/print-jobs?page=1&limit=100');
-      if (response.data.success) {
+      const response = await apiService.get('/admin/print-jobs', {
+        params: { page: 1, limit: 100, search: jobSearch.trim() || undefined }
+      });
+      if (response.data.success && request === latestJobsRequest.current) {
         setPrintJobs(response.data.data.jobs);
       }
     } catch (error) {
       console.error('Error loading print jobs:', error);
     } finally {
-      setLoadingData(false);
+      if (request === latestJobsRequest.current) setLoadingData(false);
+    }
+  }, [jobSearch]);
+
+  useEffect(() => {
+    if (admin) loadDashboardData();
+  }, [admin]);
+
+  // Waits for a pause in typing before searching
+  useEffect(() => {
+    if (!admin) return undefined;
+    const timer = setTimeout(loadPrintJobs, jobSearch ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [admin, loadPrintJobs, jobSearch]);
+
+  const loadPrinters = useCallback(async () => {
+    try {
+      const response = await apiService.get('/admin/printers');
+      if (response.data.success) setPrinterInfo(response.data.data);
+    } catch (error) {
+      console.error('Error loading printers:', error);
     }
   }, []);
 
-  useEffect(() => {
-    if (admin) {
-      loadDashboardData();
-      loadPrintJobs();
+  const loadPrintEvents = useCallback(async () => {
+    try {
+      const response = await apiService.get('/admin/print-events', { params: { limit: 50 } });
+      if (response.data.success) setPrintEvents(response.data.data);
+    } catch (error) {
+      console.error('Error loading printer activity:', error);
     }
-  }, [admin, loadPrintJobs]);
+  }, []);
+
+  // Printer states change on their own (out of paper, offline...), so they are checked regularly
+  useEffect(() => {
+    if (!admin || activeTab !== 'print-jobs') return undefined;
+    loadPrinters();
+    const timer = setInterval(loadPrinters, 4000);
+    return () => clearInterval(timer);
+  }, [admin, activeTab, loadPrinters]);
+
+  useEffect(() => {
+    if (!admin || activeTab !== 'print-jobs' || !showPrintLog) return undefined;
+    loadPrintEvents();
+    const timer = setInterval(loadPrintEvents, 3000);
+    return () => clearInterval(timer);
+  }, [admin, activeTab, showPrintLog, loadPrintEvents]);
+
+  // Follows jobs on their way through a printer
+  const jobsPrinting = printJobs.some(job => ACTIVE_PRINT_STATES.includes(job.print_state));
+  useEffect(() => {
+    if (!admin || !jobsPrinting) return undefined;
+    const timer = setInterval(loadPrintJobs, 2000);
+    return () => clearInterval(timer);
+  }, [admin, jobsPrinting, loadPrintJobs]);
+
+  // Sends the job to a printer connected to the server's computer. Errors are shown in the print screen.
+  const sendToPrinter = async (job, settings) => {
+    await apiService.post(`/admin/print-jobs/${job.id}/print`, settings);
+    setPrintDialogJob(null);
+    loadPrintJobs();
+    loadPrinters();
+    if (showPrintLog) loadPrintEvents();
+  };
 
   const loadDashboardData = async () => {
     try {
@@ -64,10 +133,12 @@ const Admin = () => {
   };
 
   // Uploaded files need the admin login, so they are fetched rather than linked to directly
-  const fetchJobFileUrl = async (job) => {
+  const fetchJobFile = async (job) => {
     const response = await apiService.get(`/admin/print-jobs/${job.id}/file`, { responseType: 'blob' });
-    return window.URL.createObjectURL(response.data);
+    return response.data;
   };
+
+  const fetchJobFileUrl = async (job) => window.URL.createObjectURL(await fetchJobFile(job));
 
   const getFileExtension = (job) => job.file_path.split('.').pop().toLowerCase();
 
@@ -118,19 +189,41 @@ const Admin = () => {
         alert('Word documents cannot be printed from the browser. Download the file and print it from Word.');
         return;
       }
+      let file;
       try {
-        const url = await fetchJobFileUrl(job);
-        const printFrame = document.createElement('iframe');
-        printFrame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-        printFrame.src = url;
-        printFrame.onload = () => {
-          printFrame.contentWindow.focus();
-          printFrame.contentWindow.print();
-        };
-        document.body.appendChild(printFrame);
+        file = await fetchJobFile(job);
       } catch {
         alert('Unable to print the file. It may no longer exist.');
+        return;
       }
+
+      // Builds a file with only the student's pages, once per copy. If that fails, for example
+      // for a protected PDF, the original is printed and the pages and copies are set by hand.
+      try {
+        file = await buildPrintFile(file, job, getFileExtension(job));
+      } catch (error) {
+        console.error('Could not prepare the file for printing:', error);
+        alert(`This file could not be prepared for printing. In the print dialog, set Pages to ${formatPages(job.selected_pages)} and Copies to ${copyCount(job)}.`);
+      }
+
+      // The settings no file can carry stay on screen, below the print dialog, until it closes
+      setPrintingJob(job);
+      const url = window.URL.createObjectURL(file);
+      // The previous job's frame is finished with once another job is printed
+      document.querySelectorAll('iframe[data-print-frame]').forEach((frame) => {
+        window.URL.revokeObjectURL(frame.src);
+        frame.remove();
+      });
+      const printFrame = document.createElement('iframe');
+      printFrame.dataset.printFrame = 'true';
+      printFrame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+      printFrame.src = url;
+      printFrame.onload = () => {
+        printFrame.contentWindow.addEventListener('afterprint', () => setPrintingJob(null));
+        printFrame.contentWindow.focus();
+        printFrame.contentWindow.print();
+      };
+      document.body.appendChild(printFrame);
     }
   };
 
@@ -303,6 +396,8 @@ const Admin = () => {
               <h2>Print Jobs Management</h2>
             </div>
 
+            <PrintersPanel info={printerInfo} events={printEvents} onShowLog={setShowPrintLog} />
+
             {/* Print Jobs Classification Filter Tabs */}
             <div className="job-filter-tabs">
               <button
@@ -336,12 +431,31 @@ const Admin = () => {
                 Cancelled <span className="filter-count-badge">{statusCounts.cancelled}</span>
               </button>
             </div>
-            
-            {loadingData ? (
+
+            <div className="job-search">
+              <input
+                type="search"
+                className="job-search-input"
+                placeholder="Search by register number"
+                aria-label="Search by register number"
+                value={jobSearch}
+                onChange={(e) => setJobSearch(e.target.value)}
+              />
+              {jobSearch && (
+                <button type="button" className="job-search-clear" onClick={() => setJobSearch('')}>
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {loadingData && printJobs.length === 0 ? (
               <div className="loading">Loading jobs...</div>
             ) : filteredJobs.length === 0 ? (
               <div className="no-jobs-card">
-                <p>No print jobs found in category <strong>{jobStatusFilter === 'all' ? 'All Tasks' : jobStatusFilter}</strong>.</p>
+                <p>
+                  No print jobs found in category <strong>{jobStatusFilter === 'all' ? 'All Tasks' : jobStatusFilter}</strong>
+                  {jobSearch.trim() && <> for register number <strong>{jobSearch.trim()}</strong></>}.
+                </p>
               </div>
             ) : (
               <div className="jobs-grid">
@@ -373,6 +487,23 @@ const Admin = () => {
                       <p><strong>Date:</strong> {formatDate(job.created_at)}</p>
                     </div>
 
+                    {job.print_state && (
+                      <div className={`print-progress ${job.print_state}`} role="status">
+                        <div className="print-progress-head">
+                          <span className="print-progress-label">{PRINT_STATE_LABELS[job.print_state] || job.print_state}</span>
+                          {job.print_printer && <span className="print-progress-printer">{job.print_printer}</span>}
+                        </div>
+                        {job.print_message && job.print_message !== PRINT_STATE_LABELS[job.print_state] && (
+                          <p className="print-progress-message">{job.print_message}</p>
+                        )}
+                        {job.print_state === 'printing' && job.print_total_pages > 0 && (
+                          <div className="print-progress-bar" aria-hidden="true">
+                            <span style={{ width: `${Math.min(100, Math.round(((job.print_pages_printed || 0) / job.print_total_pages) * 100))}%` }} />
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="job-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
                       {/* Cancelled jobs: Admin can only view metadata and cannot access files */}
                       {job.status === 'cancelled' ? (
@@ -391,12 +522,12 @@ const Admin = () => {
                             View
                           </button>
                           <button
-                            onClick={() => job.file_path ? printJobPdf(job) : alert('No PDF available for this job.')}
+                            onClick={() => job.file_path ? setPrintDialogJob(job) : alert('No PDF available for this job.')}
                             className="btn btn-success"
-                            title={job.file_path ? 'Print PDF' : 'No PDF available'}
-                            disabled={!job.file_path}
+                            title={job.file_path ? 'Print on a printer connected to this computer' : 'No PDF available'}
+                            disabled={!job.file_path || ACTIVE_PRINT_STATES.includes(job.print_state)}
                           >
-                            Print
+                            {ACTIVE_PRINT_STATES.includes(job.print_state) ? 'Printing...' : 'Print'}
                           </button>
                           <button
                             onClick={() => job.file_path ? downloadJobPdf(job) : alert('No PDF available for this job.')}
@@ -428,6 +559,27 @@ const Admin = () => {
           </div>
         )}
       </main>
+
+      <PrintDialog
+        job={printDialogJob}
+        printers={printerInfo?.printers}
+        onPrint={sendToPrinter}
+        onBrowserPrint={printJobPdf}
+        onClose={() => setPrintDialogJob(null)}
+      />
+
+      {printingJob && (
+        <div className="print-check-bar" role="status">
+          <span>
+            Printing #{printingJob.tracking_number}. In the print dialog, check{' '}
+            <strong>Colour: {printingJob.color_type === 'Color' ? 'Colour' : 'Black and white'}</strong>
+            {' and '}
+            <strong>{printingJob.double_sided ? 'Print on both sides' : 'Print on one side'}</strong>.
+            {' '}Pages and copies ({copyCount(printingJob)}) are already in the file.
+          </span>
+          <button type="button" className="print-check-close" onClick={() => setPrintingJob(null)} aria-label="Close">×</button>
+        </div>
+      )}
     </div>
   );
 };

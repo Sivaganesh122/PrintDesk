@@ -10,3 +10,6 @@ process.env.ADMIN_INITIAL_PASSWORD = 'test-admin-password';
 process.env.UPLOAD_PATH = path.join(os.tmpdir(), 'printdesk-test-uploads');
 process.env.AUTH_RATE_LIMIT_MAX = process.env.AUTH_RATE_LIMIT_MAX || '1000';
 process.env.LOG_LEVEL = 'error';
+// Pretend printers, and no background timer: each test looks at the print queue itself
+process.env.PRINTERS_SIMULATE = '1';
+process.env.PRINT_MONITOR_MS = '0';

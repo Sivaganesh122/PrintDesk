@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const { authenticateAdmin } = require('../middleware/auth');
 const { uploadsDir } = require('../config/localStorage');
+const { getPrinters, printJob, listEvents } = require('../services/printing/printService');
 
 const router = express.Router();
 
@@ -86,27 +87,39 @@ router.get('/print-jobs', asyncHandler(async (req, res) => {
     SELECT id, tracking_number, customer_name, customer_email, print_type,
        quantity, copies, double_sided, selected_pages, paper_size, color_type, binding,
        original_filename, total_price, status, created_at, file_path, order_number,
+       print_state, print_message, print_pages_printed, print_total_pages, print_printer, print_updated_at,
        ROW_NUMBER() OVER (PARTITION BY order_number ORDER BY id) AS order_document_number,
        COUNT(*) OVER (PARTITION BY order_number) AS order_document_count
 FROM print_jobs
     `;
     let countQuery = 'SELECT COUNT(*) FROM print_jobs';
-    let params = [];
-    let paramCount = 0;
+    const conditions = [];
+    const params = [];
 
     if (status) {
-      paramCount++;
-      query += ` WHERE status = $${paramCount}`;
-      countQuery += ` WHERE status = $${paramCount}`;
       params.push(status);
+      conditions.push(`status = $${params.length}`);
     }
 
-    query += ` ORDER BY created_at DESC, id ASC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
-    params.push(limit, offset);
+    // Matches any part of the register number. Students' jobs are stored under their
+    // register number, so this finds one student's jobs.
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    if (search) {
+      params.push(`%${search.replace(/[\\%_]/g, '\\$&')}%`);
+      conditions.push(`customer_name ILIKE $${params.length}`);
+    }
+
+    if (conditions.length) {
+      const where = ` WHERE ${conditions.join(' AND ')}`;
+      query += where;
+      countQuery += where;
+    }
+
+    query += ` ORDER BY created_at DESC, id ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
 
     const [jobsResult, countResult] = await Promise.all([
-      client.query(query, params),
-      client.query(countQuery, status ? [status] : [])
+      client.query(query, [...params, limit, offset]),
+      client.query(countQuery, params)
     ]);
 
     const totalJobs = parseInt(countResult.rows[0].count);
@@ -192,6 +205,27 @@ router.patch('/print-jobs/:id/status', asyncHandler(async (req, res) => {
 }));
 
 // Serve the uploaded file for a print job
+// The printers connected to this computer, with their state and queue length
+router.get('/printers', asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await getPrinters() });
+}));
+
+// Recent activity between this computer and its printers
+router.get('/print-events', asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await listEvents(req.query.limit) });
+}));
+
+// Prints the job on a connected printer. The body can change the order's settings:
+// { printer, pages: "1-3,5" or "" for all, copies, doubleSided, color, paperSize }
+router.post('/print-jobs/:id/print', asyncHandler(async (req, res) => {
+  const result = await printJob(req.params.id, req.body || {});
+  if (result.error) {
+    return res.status(result.status).json({ error: result.error });
+  }
+  logger.info('Print job sent to a printer by admin:', { id: req.params.id, printer: result.settings.printer });
+  res.status(202).json({ success: true, data: result.settings });
+}));
+
 router.get('/print-jobs/:id/file', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const client = await pool.connect();

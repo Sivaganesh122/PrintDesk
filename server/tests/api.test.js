@@ -82,6 +82,8 @@ describe('access control', () => {
   const adminRoutes = [
     '/api/admin/dashboard',
     '/api/admin/print-jobs',
+    '/api/admin/printers',
+    '/api/admin/print-events',
     '/api/admin/payments',
     '/api/payment/all',
     '/api/reports/customers',
@@ -458,6 +460,33 @@ describe('admin job management', () => {
     expect(job).toMatchObject({ copies: 2, double_sided: true, paper_size: 'A3', binding: 'Spiral' });
   });
 
+  test('the job list can be searched by register number', async () => {
+    await submitJob(otherStudentToken);
+    const search = async (text) => {
+      const res = await request(app).get('/api/admin/print-jobs').query({ limit: 100, search: text }).set(auth(adminToken));
+      expect(res.status).toBe(200);
+      return res.body.data.jobs.map((job) => job.customer_name);
+    };
+
+    const exact = await search('727624bcs002');
+    expect(exact.length).toBeGreaterThan(0);
+    expect(exact.every((name) => name === OTHER_STUDENT.registration_number)).toBe(true);
+
+    const partial = await search('BCS00');
+    expect(partial).toEqual(expect.arrayContaining([STUDENT.registration_number, OTHER_STUDENT.registration_number]));
+
+    expect(await search('%')).toEqual([]);
+    expect(await search('_')).toEqual([]);
+  });
+
+  test('the search works together with the status filter', async () => {
+    const res = await request(app).get('/api/admin/print-jobs')
+      .query({ status: 'completed', search: STUDENT.registration_number }).set(auth(adminToken));
+    expect(res.body.data.jobs.length).toBeGreaterThan(0);
+    expect(res.body.data.jobs.every((job) => job.status === 'completed' && job.customer_name === STUDENT.registration_number)).toBe(true);
+    expect(res.body.data.pagination.totalJobs).toBe(res.body.data.jobs.length);
+  });
+
   test('bad pagination values do not cause errors', async () => {
     const res = await request(app).get('/api/admin/print-jobs?page=abc&limit=xyz').set(auth(adminToken));
     expect(res.status).toBe(200);
@@ -517,5 +546,168 @@ describe('file cleanup', () => {
 
     const { rows } = await pool.query('SELECT file_path FROM print_jobs WHERE id = $1', [oldDone.id]);
     expect(rows[0].file_path).toBeNull();
+  });
+});
+
+describe('printing on the printers connected to this computer', () => {
+  const printService = require('../services/printing/printService');
+  const simulated = require('../services/printing/simulatedPrinter');
+
+  const printers = () => request(app).get('/api/admin/printers').set(auth(adminToken));
+  const print = (id, body = {}) => request(app).post(`/api/admin/print-jobs/${id}/print`).set(auth(adminToken)).send(body);
+  const jobRow = async (id) => (await pool.query(
+    'SELECT status, print_state, print_message, print_printer, print_attempt, print_pages_printed, print_total_pages FROM print_jobs WHERE id = $1',
+    [id]
+  )).rows[0];
+  const events = async (trackingNumber) => (await request(app).get('/api/admin/print-events?limit=200').set(auth(adminToken)))
+    .body.data.filter((e) => !trackingNumber || e.tracking_number === trackingNumber).reverse();
+  const newJob = async (spec) => firstDocument(await submitJob(studentToken, { spec }));
+
+  // Looks at the queue until the job finishes, like the background monitor does every 2 seconds
+  const printUntilDone = async (id, seen = []) => {
+    await printService.settle();
+    for (let i = 0; i < 40; i++) {
+      const row = await jobRow(id);
+      if (seen[seen.length - 1] !== row.print_state) seen.push(row.print_state);
+      if (['printed', 'error'].includes(row.print_state)) return seen;
+      await printService.monitorTick();
+    }
+    throw new Error('The job never finished');
+  };
+
+  beforeEach(async () => {
+    // A job still being handed to a printer would land in the next test's queue
+    await printService.settle();
+    printService.reset();
+    simulated.reset();
+    delete process.env.PRINTERS_SIMULATE_PAPER_OUT;
+  });
+
+  test('lists the printers with their state', async () => {
+    const res = await printers();
+    expect(res.status).toBe(200);
+    expect(res.body.data.available).toBe(true);
+    expect(res.body.data.printers).toEqual([
+      { name: 'Simulated Laser', status: 'Normal', ok: true, statusText: 'Ready', isDefault: true, virtual: false, queued: 0 },
+      { name: 'Simulated Colour Inkjet', status: 'Normal', ok: true, statusText: 'Ready', isDefault: false, virtual: false, queued: 0 }
+    ]);
+  });
+
+  test('prints with the order\'s settings and follows the job to completion', async () => {
+    const { id, trackingNumber } = await newJob({ selectedPages: [1, 3, 4], copies: 2, doubleSided: true, color: true, paperSize: 'A3' });
+
+    const res = await print(id, { printer: 'Simulated Laser' });
+    expect(res.status).toBe(202);
+    expect(res.body.data).toEqual({ printer: 'Simulated Laser', pages: '1,3-4', copies: 2, doubleSided: true, color: true, paperSize: 'A3' });
+    expect(await jobRow(id)).toMatchObject({ print_state: 'sending', print_printer: 'Simulated Laser', print_attempt: 1 });
+
+    // Windows usually has the job in its queue by the first look
+    expect(await printUntilDone(id)).toEqual(['printing', 'printed']);
+    expect(await jobRow(id)).toMatchObject({ status: 'completed', print_state: 'printed', print_total_pages: 6 });
+
+    const log = await events(trackingNumber);
+    expect(log.map((e) => e.state)).toEqual(['sent', 'printing', 'printed']);
+    expect(log[0].message).toBe('Sent to the printer: pages 1,3-4, 2 copies, both sides, colour, A3');
+    expect(log.every((e) => e.printer === 'Simulated Laser' && e.print_job_id === id)).toBe(true);
+  });
+
+  test('the admin can change the settings before printing', async () => {
+    const { id, trackingNumber } = await newJob({ selectedPages: [1, 3, 4], copies: 2, doubleSided: true, color: true, paperSize: 'A3' });
+    const res = await print(id, { printer: 'Simulated Colour Inkjet', pages: '2 - 3', copies: 1, doubleSided: false, color: false, paperSize: 'A4' });
+    expect(res.body.data).toEqual({ printer: 'Simulated Colour Inkjet', pages: '2-3', copies: 1, doubleSided: false, color: false, paperSize: 'A4' });
+    await printUntilDone(id);
+    expect((await jobRow(id)).print_total_pages).toBe(2);
+    expect((await events(trackingNumber))[0].message).toBe('Sent to the printer: pages 2-3, 1 copy, one side, black and white, A4');
+
+    // An empty page list prints the whole document
+    const all = await newJob();
+    expect((await print(all.id, { printer: 'Simulated Laser', pages: '' })).body.data.pages).toBe('');
+  });
+
+  test('a printer problem holds the job up, is logged, and printing carries on once fixed', async () => {
+    process.env.PRINTERS_SIMULATE_PAPER_OUT = '2';
+    const { id, trackingNumber } = await newJob({ selectedPages: [1, 2, 3], copies: 1 });
+    await print(id, { printer: 'Simulated Laser' });
+
+    const seen = [];
+    let stalled;
+    await printService.settle();
+    for (let i = 0; i < 40 && !['printed', 'error'].includes(seen[seen.length - 1]); i++) {
+      const row = await jobRow(id);
+      if (seen[seen.length - 1] !== row.print_state) seen.push(row.print_state);
+      if (row.print_state === 'stalled') {
+        stalled = row;
+        expect((await printers()).body.data.printers[0]).toMatchObject({ ok: false, statusText: 'Out of paper', queued: 1 });
+      }
+      await printService.monitorTick();
+    }
+
+    expect(seen).toEqual(['printing', 'stalled', 'printing', 'printed']);
+    expect(stalled.print_message).toBe('Out of paper. Printing continues once it is fixed.');
+    expect((await events(trackingNumber)).map((e) => e.state)).toEqual(['sent', 'printing', 'stalled', 'printing', 'printed']);
+
+    const printerLog = (await events()).filter((e) => e.printer === 'Simulated Laser' && !e.tracking_number).map((e) => e.message);
+    expect(printerLog.slice(-2)).toEqual(['Out of paper', 'Ready']);
+  });
+
+  test('a job can\'t be sent twice while printing, but can be printed again afterwards', async () => {
+    const { id } = await newJob();
+    expect((await print(id, { printer: 'Simulated Laser' })).status).toBe(202);
+    expect((await print(id, { printer: 'Simulated Laser' })).status).toBe(409);
+    await printUntilDone(id);
+    expect((await print(id, { printer: 'Simulated Laser' })).status).toBe(202);
+    expect((await jobRow(id)).print_attempt).toBe(2);
+    await printUntilDone(id);
+  });
+
+  test('the order status is not moved backwards by the printer', async () => {
+    const { id } = await newJob();
+    await pool.query("UPDATE print_jobs SET status = 'delivered' WHERE id = $1", [id]);
+    await print(id, { printer: 'Simulated Laser' });
+    await printUntilDone(id);
+    expect(await jobRow(id)).toMatchObject({ status: 'delivered', print_state: 'printed' });
+  });
+
+  test('bad print settings are refused', async () => {
+    const { id } = await newJob();
+    const refused = async (body, pattern) => {
+      const res = await print(id, body);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(pattern);
+    };
+    await refused({ printer: 'No Such Printer' }, /Choose one of the printers/);
+    await refused({ printer: 'Simulated Laser', pages: '5-2' }, /Pages must look like/);
+    await refused({ printer: 'Simulated Laser', copies: 11 }, /Copies must be between 1 and 10/);
+    await refused({ printer: 'Simulated Laser', copies: 1.5 }, /Copies/);
+    await refused({ printer: 'Simulated Laser', paperSize: 'A5' }, /Paper size must be A4 or A3/);
+    expect((await jobRow(id)).print_state).toBeNull();
+  });
+
+  test('cancelled jobs and Word documents are not printed', async () => {
+    const cancelled = await newJob();
+    await pool.query("UPDATE print_jobs SET status = 'cancelled' WHERE id = $1", [cancelled.id]);
+    expect((await print(cancelled.id, { printer: 'Simulated Laser' })).status).toBe(403);
+
+    const word = await newJob();
+    await pool.query("UPDATE print_jobs SET file_path = regexp_replace(file_path, '\\.pdf$', '.docx') WHERE id = $1", [word.id]);
+    const res = await print(word.id, { printer: 'Simulated Laser' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Word/);
+  });
+
+  test('jobs that were printing when the server stopped are marked as lost', async () => {
+    const { id, trackingNumber } = await newJob();
+    await pool.query("UPDATE print_jobs SET print_state = 'printing', print_printer = 'Simulated Laser' WHERE id = $1", [id]);
+    await printService.recoverAfterRestart();
+    expect(await jobRow(id)).toMatchObject({ print_state: 'error', print_message: expect.stringMatching(/server restarted/) });
+    expect((await events(trackingNumber)).map((e) => e.state)).toEqual(['error']);
+  });
+
+  test('the job list includes the print progress', async () => {
+    const { id } = await newJob();
+    await print(id, { printer: 'Simulated Laser' });
+    await printUntilDone(id);
+    const res = await request(app).get('/api/admin/print-jobs?limit=100').set(auth(adminToken));
+    expect(res.body.data.jobs.find((job) => job.id === id)).toMatchObject({ print_state: 'printed', print_printer: 'Simulated Laser' });
   });
 });

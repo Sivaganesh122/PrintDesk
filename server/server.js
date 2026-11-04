@@ -27,6 +27,7 @@ const { getJwtSecret } = require('./middleware/auth');
 const { logger } = require('./utils/logger');
 const { initializeDatabase } = require('./config/db');
 const { initializeStorage } = require('./config/localStorage');
+const { recoverAfterRestart } = require('./services/printing/printService');
 
 // Security middleware
 app.use(helmet({
@@ -120,6 +121,8 @@ const startServer = async () => {
     // Initialize storage
     await initializeStorage();
     logger.info('Storage initialized');
+
+    await recoverAfterRestart();
 
     // Start the cleanup scheduler in production
     if (process.env.NODE_ENV === 'production') {

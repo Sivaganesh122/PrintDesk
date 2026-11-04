@@ -76,6 +76,32 @@ const initializeDatabase = async () => {
         ADD COLUMN IF NOT EXISTS order_number VARCHAR(255)
     `);
 
+    // Progress of printing a job on a printer connected to this computer. print_attempt goes up
+    // each time the admin presses Print, so news about an older attempt is ignored.
+    await client.query(`
+      ALTER TABLE print_jobs
+        ADD COLUMN IF NOT EXISTS print_state VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS print_message TEXT,
+        ADD COLUMN IF NOT EXISTS print_pages_printed INTEGER,
+        ADD COLUMN IF NOT EXISTS print_total_pages INTEGER,
+        ADD COLUMN IF NOT EXISTS print_printer VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS print_attempt INTEGER NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS print_updated_at TIMESTAMP
+    `);
+
+    // What happened between this computer and its printers, shown as the printer activity log
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS print_events (
+        id SERIAL PRIMARY KEY,
+        print_job_id INTEGER REFERENCES print_jobs(id) ON DELETE SET NULL,
+        tracking_number VARCHAR(255),
+        printer VARCHAR(255),
+        state VARCHAR(30) NOT NULL,
+        message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Create payments table
     await client.query(`
       CREATE TABLE IF NOT EXISTS payments (

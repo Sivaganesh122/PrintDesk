@@ -326,6 +326,286 @@
   text-align: center;
 }
 
+/* Settings To Check While The Print Dialog Is Open */
+.print-check-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  background: #fef3c7;
+  color: #78350f;
+  font-size: 1rem;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.print-check-bar strong {
+  color: #451a03;
+}
+
+.print-check-close {
+  background: transparent;
+  border: 0;
+  color: #78350f;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.25rem;
+}
+
+/* Printers Connected To This Computer */
+.printers-panel {
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.1rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f1f5f9;
+}
+
+.printers-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+
+.printers-panel h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.printers-log-toggle {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.printers-log-toggle:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.printers-note {
+  margin: 0;
+  font-size: 0.92rem;
+  opacity: 0.9;
+}
+
+.printer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.5rem;
+}
+
+.printer-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.55rem;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.2);
+  font-size: 0.9rem;
+}
+
+.printer-item .printer-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #94a3b8;
+}
+
+.printer-item.ok .printer-dot {
+  background: #4ade80;
+}
+
+.printer-item.problem .printer-dot {
+  background: #f87171;
+}
+
+.printer-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.printer-tag {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.printer-status {
+  grid-column: 2;
+  opacity: 0.85;
+}
+
+.printer-item.problem .printer-status {
+  color: #fecaca;
+  opacity: 1;
+  font-weight: 600;
+}
+
+.printer-log {
+  margin-top: 0.85rem;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.25);
+}
+
+.printer-log table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.printer-log th,
+.printer-log td {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.printer-log th {
+  position: sticky;
+  top: 0;
+  background: #4c4fa8;
+  font-weight: 700;
+}
+
+.printer-log td:first-child {
+  white-space: nowrap;
+}
+
+.printer-log .log-error td,
+.printer-log .log-printer-problem td,
+.printer-log .log-stalled td {
+  color: #fecaca;
+}
+
+.printer-log .log-printed td {
+  color: #bbf7d0;
+}
+
+/* Print Progress On A Job Card */
+.print-progress {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border-left: 4px solid #93c5fd;
+  color: #f1f5f9;
+  font-size: 0.88rem;
+}
+
+.print-progress.printed {
+  border-left-color: #4ade80;
+}
+
+.print-progress.stalled {
+  border-left-color: #fbbf24;
+  background: rgba(245, 158, 11, 0.18);
+}
+
+.print-progress.error {
+  border-left-color: #f87171;
+  background: rgba(239, 68, 68, 0.18);
+}
+
+.print-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.print-progress-label {
+  font-weight: 700;
+}
+
+.print-progress-printer {
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+}
+
+.print-progress-message {
+  margin: 0.25rem 0 0;
+}
+
+.print-progress-bar {
+  margin-top: 0.45rem;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.print-progress-bar span {
+  display: block;
+  height: 100%;
+  background: #93c5fd;
+  transition: width 0.4s ease;
+}
+
+/* Register Number Search */
+.job-search {
+  display: flex;
+  gap: 0.5rem;
+  margin: -1rem 0 1.5rem;
+  max-width: 420px;
+}
+
+.job-search-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.95rem;
+  color: #1e293b;
+}
+
+.job-search-input:focus {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+}
+
+.job-search-clear {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 0 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.job-search-clear:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
 /* Empty Jobs State */
 .no-jobs-card {
   background: rgba(255, 255, 255, 0.1);
